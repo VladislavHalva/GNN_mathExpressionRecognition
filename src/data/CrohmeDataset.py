@@ -67,20 +67,21 @@ class CrohmeDataset(Dataset):
         return len(self.items)
 
     def __getitem__(self, idx):
-        item = self.items[idx]
-        image_path, inkml_path, lg_path = item
+        try:
+            item = self.items[idx]
+            image_path, inkml_path, lg_path = item
 
-        print('Filename: ' + image_path)
+            x, edge_index, edge_attr = self.get_src_item(image_path)
+            y, tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path, lg_path)
 
-        x, edge_index, edge_attr = self.get_src_item(image_path)
-        y, tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path, lg_path)
-
-        data = GPairData(
-            x=x, edge_index=edge_index, edge_attr=edge_attr,
-            y=y, tgt_x=tgt_x, tgt_edge_index=tgt_edge_index,
-            tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
-        )
-        return data
+            data = GPairData(
+                x=x, edge_index=edge_index, edge_attr=edge_attr,
+                y=y, tgt_x=tgt_x, tgt_edge_index=tgt_edge_index,
+                tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
+            )
+            return data
+        except Exception as e:
+            return self.__getitem__(random.randrange(0, self.__len__()))
 
     def get_src_item(self, image_path):
         # extract components and build LoS graph
@@ -107,6 +108,12 @@ class CrohmeDataset(Dataset):
         # input edges attributes
         edge_attr = torch.tensor(edge_features, dtype=torch.float)
         edge_attr = self.add_backward_edge_attr(edge_attr)
+
+        if edge_index.size(0) == 0:
+            # prevent error in case of empty edge set
+            # add some self loop
+            edge_index = torch.tensor([[0], [0]], dtype=torch.long)
+            edge_attr = torch.zeros((1, 19), dtype=torch.float)
 
         return x, edge_index, edge_attr
 
@@ -252,15 +259,17 @@ class CrohmeDataset(Dataset):
 
     def add_backward_edge_attr(self, edge_attr):
         bw_edge_attr = torch.clone(edge_attr)
-        bw_edge_attr[:, 5] = torch.pow(bw_edge_attr[:, 5], -1)
-        bw_edge_attr[:, 7] = torch.pow(bw_edge_attr[:, 7], -1)
-        bw_edge_attr[:, 8] = torch.pow(bw_edge_attr[:, 8], -1)
-        bw_edge_attr[:, 9] = torch.pow(bw_edge_attr[:, 9], -1)
-        bw_edge_attr[:, 10] = torch.pow(bw_edge_attr[:, 10], -1)
-        bw_edge_attr[:, 11], bw_edge_attr[:, 15] = bw_edge_attr[:, 15], bw_edge_attr[:, 11]
-        bw_edge_attr[:, 12], bw_edge_attr[:, 16] = bw_edge_attr[:, 16], bw_edge_attr[:, 12]
-        bw_edge_attr[:, 13], bw_edge_attr[:, 17] = bw_edge_attr[:, 17], bw_edge_attr[:, 13]
-        bw_edge_attr[:, 14], bw_edge_attr[:, 18] = bw_edge_attr[:, 18], bw_edge_attr[:, 14]
+        if bw_edge_attr.size(0) > 0:
+            # if there are some attributes only - prevent IndexError
+            bw_edge_attr[:, 5] = torch.pow(bw_edge_attr[:, 5], -1)
+            bw_edge_attr[:, 7] = torch.pow(bw_edge_attr[:, 7], -1)
+            bw_edge_attr[:, 8] = torch.pow(bw_edge_attr[:, 8], -1)
+            bw_edge_attr[:, 9] = torch.pow(bw_edge_attr[:, 9], -1)
+            bw_edge_attr[:, 10] = torch.pow(bw_edge_attr[:, 10], -1)
+            bw_edge_attr[:, 11], bw_edge_attr[:, 15] = bw_edge_attr[:, 15], bw_edge_attr[:, 11]
+            bw_edge_attr[:, 12], bw_edge_attr[:, 16] = bw_edge_attr[:, 16], bw_edge_attr[:, 12]
+            bw_edge_attr[:, 13], bw_edge_attr[:, 17] = bw_edge_attr[:, 17], bw_edge_attr[:, 13]
+            bw_edge_attr[:, 14], bw_edge_attr[:, 18] = bw_edge_attr[:, 18], bw_edge_attr[:, 14]
 
         return torch.cat([edge_attr, bw_edge_attr], dim=0)
 
@@ -319,6 +328,7 @@ class CrohmeDataset(Dataset):
         symbols = []
         relations = []
 
+        # load layout graph from file
         with open(filepath) as file:
             reading_objects = False
             reading_relations = False
@@ -329,28 +339,46 @@ class CrohmeDataset(Dataset):
                     reading_objects = False
                     reading_relations = False
                 elif re.search('# Objects\(\d+\):', line):
+                    # objects list section starts
                     reading_objects = True
                     reading_relations = False
                 elif re.search('# Relations from SRT:', line):
+                    # edges list section starts
                     reading_objects = False
                     reading_relations = True
+                elif re.search('#', line):
+                    # some other information section starts - skip
+                    reading_objects = False
+                    reading_relations = False
                 elif reading_objects:
+                    # in objects section
                     obj_elements = line.split(', ')
-                    symbols.append({
-                        'id': obj_elements[1],
-                        'symbol': obj_elements[2]
-                    })
+                    if len(obj_elements) >= 3:
+                        symbols.append({
+                            'id': obj_elements[1],
+                            'symbol': obj_elements[2]
+                        })
                 elif reading_relations:
+                    # in edges section
                     rel_elements = line.split(', ')
-                    relations.append({
-                        'src_id': rel_elements[1],
-                        'tgt_id': rel_elements[2],
-                        'type': SrtEdgeTypes.from_string(rel_elements[3])
-                    })
+                    if len(rel_elements) >= 4:
+                        relations.append({
+                            'src_id': rel_elements[1],
+                            'tgt_id': rel_elements[2],
+                            'type': SrtEdgeTypes.from_string(rel_elements[3])
+                        })
+
+        # check if all nodes mentioned in edges exist
+        symbol_ids = [symbol['id'] for symbol in symbols]
+        for relation in relations:
+            if not relation['src_id'] in symbol_ids or not relation['tgt_id'] in symbol_ids:
+                del relation
+
         return symbols, relations
 
     def get_slt(self, lg_path):
         symbols, relations = self.parse_lg(lg_path)
+        # TODO detect cycles in graph
 
         # tokenize symbols
         # TODO this gives only the first token in case of multiple per node
@@ -364,7 +392,7 @@ class CrohmeDataset(Dataset):
 
         # pad all nodes to max tokens count
         max_tokenized_length = len(max(x, key=lambda i: len(i)))
-        x = [el + [0]*(max_tokenized_length - len(el)) for el in x]
+        x = [el + [0] * (max_tokenized_length - len(el)) for el in x]
 
         edge_index = []
         edge_type = []
@@ -423,7 +451,7 @@ class CrohmeDataset(Dataset):
     def get_end_child_nodes(self, nodes_count):
         eos_token_id = self.tokenizer.encode('[EOS]', add_special_tokens=False).ids
         end_nodes = [eos_token_id for _ in range(nodes_count)]
-        end_edge_index = [[i, nodes_count+i] for i in range(nodes_count)]
+        end_edge_index = [[i, nodes_count + i] for i in range(nodes_count)]
         return end_nodes, end_edge_index
 
     def get_gp_edges(self, edge_index):
@@ -487,7 +515,6 @@ class CrohmeDataset(Dataset):
     def get_self_edges(self, nodes_count):
         self_loop_edges = [[i, i] for i in range(nodes_count)]
         return self_loop_edges
-
 
     def draw_slt(self, x, edge_index, edge_type, edge_relation):
         x_indices = list(range(len(x)))

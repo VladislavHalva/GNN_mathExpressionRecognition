@@ -7,7 +7,7 @@ from src.model.Resnet import Resnet
 
 
 class Encoder(nn.Module):
-    def __init__(self, components_shape, input_edge_size, input_feature_size, hidden_size, embed_size):
+    def __init__(self, device, components_shape, input_edge_size, input_feature_size, hidden_size, embed_size):
         super(Encoder, self).__init__()
         self.resnet = Resnet(1, input_feature_size, components_shape)
         self.lin_edge = nn.Sequential(

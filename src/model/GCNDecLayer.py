@@ -11,11 +11,12 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 
 
 class GCNDecLayer(MessagePassing):
-    def __init__(self, hidden_size, embed_size, is_first=False):
+    def __init__(self, device, hidden_size, embed_size, is_first=False):
         super(GCNDecLayer, self).__init__(node_dim=0, aggr='add')
         # node_dim = axis along which propagation is done
         # aggr = aggregation function (add = SUM)
 
+        self.device = device
         self.embed_size = embed_size
         self.hidden_size = hidden_size
         self.is_first = is_first
@@ -45,7 +46,7 @@ class GCNDecLayer(MessagePassing):
         self.lin_z.reset_parameters()
         zeros(self.bias)
 
-    def forward(self, src_x, x, edge_index, edge_type):
+    def forward(self, src_x, x, edge_index, edge_type, restrict_update_to=None):
         # linear transformation of nodes given by different possible edge types
         gg_h = self.lin_gg(x)
         pc_h = self.lin_pc(x)
@@ -65,6 +66,20 @@ class GCNDecLayer(MessagePassing):
             bb_edges_mask=bb_edges_mask, cc_edges_mask=cc_edges_mask,
             size=None)
         out += self.bias
+
+        if restrict_update_to:
+            # during eval time update features only for currently generated node
+            # mask new features that shall be preserved
+            update_mask = torch.zeros(x.size(0), dtype=torch.long).to(self.device)
+            update_mask[restrict_update_to] = 1
+            update_mask = update_mask.unsqueeze(1)
+            out = out * update_mask
+            # mask old features that shall be preserved
+            preserve_mask = torch.abs(update_mask - 1)
+            x = x * preserve_mask
+            # combine old and new
+            out = out + x
+
         return out
 
     def message(self, x_j, gg_h_j, pc_h_j, bb_h_j, cc_h_j, gg_edges_mask, pc_edges_mask, bb_edges_mask, cc_edges_mask):
@@ -74,7 +89,7 @@ class GCNDecLayer(MessagePassing):
         bb_h_j_masked = bb_h_j * bb_edges_mask
         if self.is_first:
             # if first layer - current node features set to zero - to learn
-            cc_h_j_masked = torch.zeros(cc_h_j.size()) * cc_edges_mask
+            cc_h_j_masked = torch.zeros(cc_h_j.size()).to(self.device) * cc_edges_mask
         else:
             cc_h_j_masked = cc_h_j * cc_edges_mask
 
