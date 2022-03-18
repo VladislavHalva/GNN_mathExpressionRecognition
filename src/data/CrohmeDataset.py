@@ -24,6 +24,7 @@ import pydot
 from networkx.drawing.nx_pydot import graphviz_layout
 
 from src.data.GPairData import GPairData
+from src.data.LatexVocab import LatexVocab
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 
@@ -67,27 +68,25 @@ class CrohmeDataset(Dataset):
         return len(self.items)
 
     def __getitem__(self, idx):
-        try:
-            item = self.items[idx]
-            image_path, inkml_path, lg_path = item
+        # TODO catch exception
+        item = self.items[idx]
+        image_path, inkml_path, lg_path = item
 
-            x, edge_index, edge_attr = self.get_src_item(image_path)
-            y, tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path, lg_path)
+        x, edge_index, edge_attr = self.get_src_item(image_path)
+        y, tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path, lg_path)
 
-            data = GPairData(
-                x=x, edge_index=edge_index, edge_attr=edge_attr,
-                y=y, tgt_x=tgt_x, tgt_edge_index=tgt_edge_index,
-                tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
-            )
-            return data
-        except Exception as e:
-            return self.__getitem__(random.randrange(0, self.__len__()))
+        data = GPairData(
+            x=x, edge_index=edge_index, edge_attr=edge_attr,
+            y=y, tgt_x=tgt_x, tgt_edge_index=tgt_edge_index,
+            tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
+        )
+        return data
 
     def get_src_item(self, image_path):
         # extract components and build LoS graph
         components, components_mask = self.extract_components_from_image(image_path)
         edges, edge_features = self.get_line_of_sight_edges(components, components_mask)
-
+        # self.draw_los(image_path, components, edges)
         # BUILD PyG GRAPH DATA ELEMENT
 
         # input components images
@@ -120,11 +119,14 @@ class CrohmeDataset(Dataset):
     def get_tgt_item(self, inkml_path, lg_path):
         # extract ground truth latex sentence from inkml
         gt_latex = self.get_latex_from_inkml(inkml_path)
+        gt_latex = LatexVocab.split_to_tokens(gt_latex)
         gt_latex_tokens = self.tokenizer.encode(gt_latex)
         y = torch.tensor(gt_latex_tokens.ids, dtype=torch.long)
 
+        print(gt_latex)
+
         # build target symbol layout tree
-        tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_slt(lg_path)
+        tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_slt(lg_path, inkml_path, gt_latex)
 
         tgt_x = torch.tensor(tgt_x, dtype=torch.long)
         tgt_edge_index = torch.tensor(tgt_edge_index, dtype=torch.long)
@@ -354,9 +356,14 @@ class CrohmeDataset(Dataset):
                     # in objects section
                     obj_elements = line.split(', ')
                     if len(obj_elements) >= 3:
+                        sid = obj_elements[1]
+                        symbol = obj_elements[2]
+                        # distinct fractions and minus
+                        if symbol == '-' and sid[0] == '_':
+                            symbol = '\\frac'
                         symbols.append({
-                            'id': obj_elements[1],
-                            'symbol': obj_elements[2]
+                            'id': sid,
+                            'symbol': symbol
                         })
                 elif reading_relations:
                     # in edges section
@@ -376,8 +383,241 @@ class CrohmeDataset(Dataset):
 
         return symbols, relations
 
-    def get_slt(self, lg_path):
-        symbols, relations = self.parse_lg(lg_path)
+    def build_slt_from_latex(self, latex):
+        # TODO REMOVE METHOD
+        symbols = []
+        relations = []
+
+        # define regexes to match element types
+        classic_cmd_re = r"(\\[a-zA-Z]+)(?![a-zA-Z])"
+        special_cmd_re = r"(\\[\{\}\|\#\,])"
+        var_re = r"(?<![\\\a-zA-Z])([a-zA-Z]+)(?![a-zA-Z])"
+        num_re = r"([0-9]+)"
+        special_char_re = r"(?<!\\)([^a-zA-Z0-9\s\\])"
+
+        prev_word = None
+        words = latex.split(' ')
+        for word in words:
+            pass
+
+        return symbols, relations
+
+    def mathml_dfs(self, xml_ns, mathml_ns, root):
+        s, r = [], []
+        if root.tag == mathml_ns + 'math':
+            for child in root:
+                s_a, r_a, _ = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s.extend(s_a)
+                r.extend(r_a)
+            return s, r, None
+        elif root.tag == mathml_ns + 'mrow':
+            # just connect all children to row (right relation)
+            linearly_connect = []
+            for child in root:
+                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s.extend(s_a)
+                r.extend(r_a)
+                linearly_connect.append(subtree_root_id)
+            for src, tgt in zip(linearly_connect, linearly_connect[1:]):
+                r.append({
+                    'src_id': src,
+                    'tgt_id': tgt,
+                    'type': SrtEdgeTypes.RIGHT
+                })
+            return s, r, linearly_connect[0]
+        elif root.tag == mathml_ns + 'msqrt':
+            # append \sqrt symbol and connect its first child as inside
+            # all children connect to row - linear (just like mrow)
+            sqrt_symbol_id = root.attrib.get(xml_ns + 'id')
+            s.append({
+                'id': sqrt_symbol_id,
+                'symbol': r"\sqrt"
+            })
+            linearly_connect = []
+            for i, child in enumerate(root):
+                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s.extend(s_a)
+                r.extend(r_a)
+                linearly_connect.append(subtree_root_id)
+                if i == 0:
+                    r.append({
+                        'src_id': sqrt_symbol_id,
+                        'tgt_id': subtree_root_id,
+                        'type': SrtEdgeTypes.INSIDE
+                    })
+            for src, tgt in zip(linearly_connect, linearly_connect[1:]):
+                r.append({
+                    'src_id': src,
+                    'tgt_id': tgt,
+                    'type': SrtEdgeTypes.RIGHT
+                })
+            return s, r, sqrt_symbol_id
+        elif root.tag == mathml_ns + 'mroot':
+            # process subtrees, add sqrt symbol and add base inside and index above
+            sqrt_symbol_id = root.attrib.get(xml_ns + 'id')
+            s.append({
+                'id': sqrt_symbol_id,
+                'symbol': r"\sqrt"
+            })
+            for i, child in enumerate(root):
+                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s.extend(s_a)
+                r.extend(r_a)
+                if i == 0:
+                    r.append({
+                        'src_id': sqrt_symbol_id,
+                        'tgt_id': subtree_root_id,
+                        'type': SrtEdgeTypes.INSIDE
+                    })
+                elif i == 1:
+                    r.append({
+                        'src_id': sqrt_symbol_id,
+                        'tgt_id': subtree_root_id,
+                        'type': SrtEdgeTypes.ABOVE
+                    })
+            return s, r, sqrt_symbol_id
+        elif root.tag in [mathml_ns + 'msub', mathml_ns + 'msup', mathml_ns + 'munder', mathml_ns + 'mover']:
+            # process subtrees and add sub/superscript or over/under connection between their roots
+            basis_id = None
+            script_id = None
+            for i, child in enumerate(root):
+                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s.extend(s_a)
+                r.extend(r_a)
+                if i == 0:
+                    basis_id = subtree_root_id
+                elif i == 1:
+                    script_id = subtree_root_id
+            if not basis_id or not script_id:
+                logging.warning('MathML sub/superscript syntax error')
+                return s, r, None
+            if root.tag == mathml_ns + 'msub':
+                relation_type = SrtEdgeTypes.SUBSCRIPT
+            elif root.tag == mathml_ns + 'msup':
+                relation_type = SrtEdgeTypes.SUPERSCRIPT
+            elif root.tag == mathml_ns + 'munder':
+                relation_type = SrtEdgeTypes.BELOW
+            else:
+                relation_type = SrtEdgeTypes.ABOVE
+            r.append({
+                'src_id': basis_id,
+                'tgt_id': script_id,
+                'type': relation_type
+            })
+            return s, r, basis_id
+        elif root.tag in [mathml_ns + 'msubsup', mathml_ns + 'munderover']:
+            # process subtrees and add sub+superscript/under+over connection between their roots
+            basis_id = None
+            subscript_id = None
+            superscript_id = None
+            for i, child in enumerate(root):
+                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s.extend(s_a)
+                r.extend(r_a)
+                if i == 0:
+                    basis_id = subtree_root_id
+                elif i == 1:
+                    subscript_id = subtree_root_id
+                elif i == 2:
+                    superscript_id = subtree_root_id
+            if not basis_id or not subscript_id or not superscript_id:
+                logging.warning('MathML sub+superscript syntax error')
+                return s, r, None
+
+            if root.tag == mathml_ns + 'msubsup':
+                relation1 = SrtEdgeTypes.SUBSCRIPT
+                relation2 = SrtEdgeTypes.SUPERSCRIPT
+            else:
+                relation1 = SrtEdgeTypes.BELOW
+                relation2 = SrtEdgeTypes.ABOVE
+
+            r.append({
+                'src_id': basis_id,
+                'tgt_id': subscript_id,
+                'type': relation1
+            })
+            r.append({
+                'src_id': basis_id,
+                'tgt_id': superscript_id,
+                'type': relation2
+            })
+            return s, r, basis_id
+        elif root.tag == mathml_ns + 'mfrac':
+            # process subtrees, add \frac symbol and add above/below
+            # relation to numerator/denominator
+            frac_symbol_id = root.attrib.get(xml_ns + 'id')
+            s.append({
+                'id': frac_symbol_id,
+                'symbol': r"\frac"
+            })
+            numerator_root_id = None
+            denominator_root_id = None
+            for i, child in enumerate(root):
+                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s.extend(s_a)
+                r.extend(r_a)
+                if i == 0:
+                    numerator_root_id = subtree_root_id
+                elif i == 1:
+                    denominator_root_id = subtree_root_id
+            if not numerator_root_id or not denominator_root_id:
+                logging.warning('MathML fraction syntax error')
+                return s, r, None
+            r.append({
+                'src_id': frac_symbol_id,
+                'tgt_id': numerator_root_id,
+                'type': SrtEdgeTypes.ABOVE
+            })
+            r.append({
+                'src_id': frac_symbol_id,
+                'tgt_id': denominator_root_id,
+                'type': SrtEdgeTypes.BELOW
+            })
+            return s, r, frac_symbol_id
+        elif root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mo', mathml_ns + 'mtext',
+                          mathml_ns + 'mspace', mathml_ns + 'ms']:
+            id = root.attrib.get(xml_ns + 'id')
+            s.append({
+                'id': id,
+                'symbol': root.text
+            })
+            return s, r, id
+        else:
+            print('unknown MathML element: ' + root.tag)
+            raise AttributeError
+
+    def parse_mathml(self, inkml_path):
+        if not os.path.isfile(inkml_path) and Path(inkml_path).suffix != '.inkml':
+            logging.warning("Inkml file does not exists: " + inkml_path)
+            return ""
+
+        xml_namespace = '{http://www.w3.org/XML/1998/namespace}'
+        doc_namespace = '{http://www.w3.org/2003/InkML}'
+        mathml_namespace = '{http://www.w3.org/1998/Math/MathML}'
+        tree = ET.parse(inkml_path)
+        root = tree.getroot()
+
+        annotation_mathml = root.find(doc_namespace + 'annotationXML[@type="truth"][@encoding="Content-MathML"]')
+        if not annotation_mathml:
+            logging.warning("Inkml file does not contain MathML annotation: " + inkml_path)
+            return ""
+
+        math_root = annotation_mathml.find(mathml_namespace + 'math')
+        if not math_root:
+            logging.warning("Inkml file does not contain math description root: " + inkml_path)
+            return ""
+
+        try:
+            s, r, _ = self.mathml_dfs(xml_namespace, mathml_namespace, math_root)
+        except AttributeError as e:
+            return [], []
+
+        return s, r
+
+    def get_slt(self, lg_path, inkml_path, latex):
+        # s, r = self.build_slt_from_latex(latex)
+        symbols, relations = self.parse_mathml(inkml_path)
+        # symbols, relations = self.parse_lg(lg_path)
         # TODO detect cycles in graph
 
         # tokenize symbols
@@ -406,6 +646,8 @@ class CrohmeDataset(Dataset):
             edge_type.append(SltEdgeTypes.PARENT_CHILD)
             edge_relation.append(relation['type'])
 
+        # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation)
+
         # append graph with edges to end child nodes
         edge_index.extend(end_edge_index)
         edge_type.extend(SltEdgeTypes.PARENT_CHILD for _ in end_edge_index)
@@ -426,8 +668,6 @@ class CrohmeDataset(Dataset):
         edge_index.extend(self_edges)
         edge_type.extend(SltEdgeTypes.CURRENT_CURRENT for I in self_edges)
         edge_relation.extend(SrtEdgeTypes.UNDEFINED for _ in self_edges)
-
-        # self.draw_slt(x, edge_index, edge_type, edge_relation)
 
         return x, edge_index, edge_type, edge_relation
 
@@ -516,9 +756,11 @@ class CrohmeDataset(Dataset):
         self_loop_edges = [[i, i] for i in range(nodes_count)]
         return self_loop_edges
 
-    def draw_slt(self, x, edge_index, edge_type, edge_relation):
+    def draw_slt(self, symbols, x, edge_index, edge_type, edge_relation):
         x_indices = list(range(len(x)))
         x_indices = torch.tensor(x_indices, dtype=torch.float)
+
+        symbols = [symbol['symbol'] for symbol in symbols]
 
         pc_edges = []
         for i, edge in enumerate(edge_index):
@@ -529,7 +771,12 @@ class CrohmeDataset(Dataset):
         edge_index = edge_index.t().contiguous()
         data = Data(x=x_indices, edge_index=edge_index)
 
+        labeldict = {}
+        for i, x_i in enumerate(symbols):
+            labeldict[i] = symbols[i]
+
         G = to_networkx(data=data, to_undirected=False)
+        G = nx.relabel_nodes(G, labeldict)
         pos = graphviz_layout(G, prog="dot")
         nx.draw(G, pos, with_labels=True)
         plt.draw()

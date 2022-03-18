@@ -39,7 +39,6 @@ class Decoder(nn.Module):
             data.out_x = self.gcn2(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
         else:
             data.out_x, data.tgt_edge_index, data.tgt_edge_type = self.generate_output_graph(data)
-            return data
 
         # predictions for nodes from output graph
         out_node_predictions = self.lin_z_out(data.out_x)
