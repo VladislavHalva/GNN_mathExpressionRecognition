@@ -23,3 +23,17 @@ class SrtEdgeTypes(IntEnum):
             'subscript': cls.SUBSCRIPT
         }
         return switcher.get(string, cls.UNDEFINED)
+
+    @classmethod
+    def to_string(cls, idx):
+        switcher = {
+            cls.UNDEFINED: 'undefined',
+            cls.RIGHT: 'right',
+            cls.ABOVE: 'above',
+            cls.BELOW: 'below',
+            cls.INSIDE: 'inside',
+            cls.SUPERSCRIPT: 'superscript',
+            cls.SUBSCRIPT: 'subscript',
+            cls.TO_ENDNODE: 'to-endnode'
+        }
+        return switcher.get(idx, 'unk')

@@ -143,9 +143,9 @@ if __name__ == '__main__':
                 out = model(data_batch)
 
                 preds = torch.exp(out.out_x_pred)
-                # print(out)
                 latex = SltParser.slt_to_latex(tokenizer, out.out_x_pred, out.out_edge_pred, out.tgt_edge_index, out.tgt_edge_type)
                 print(latex)
+                exit()
                 max, max_id = preds.max(dim=1)
                 # print('GT: ' + tokenizer.decode(out.y.tolist()))
                 # print('PR: ' + tokenizer.decode(max_id.tolist()))
