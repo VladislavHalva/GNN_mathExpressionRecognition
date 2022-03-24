@@ -1,5 +1,6 @@
 import logging
 import os.path
+from itertools import chain
 
 import networkx as nx
 import torch
@@ -20,47 +21,49 @@ from src.model.Model import Model
 
 import datetime
 
-from test import test
+from src.utils.SltParser import SltParser
 
 if __name__ == '__main__':
-    test()
-    exit()
-
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
+    load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 1
-    batch_size = 1
+    epochs = 100
+    batch_size = 2
     components_shape = (32, 32)
     input_edge_size = 19
     input_feature_size = 256
     hidden_size = 256
     embed_size = 256
 
+    # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
+    # for training
+    train_images_root = 'assets/crohme/dev/img/'
+    train_inkmls_root = 'assets/crohme/dev/inkml/'
+    # for test
+    test_images_root = 'assets/crohme/dev/img/'
+    test_inkmls_root = 'assets/crohme/dev/inkml/'
 
-    images_root = 'assets/crohme/dev/img/'
-    inkmls_root = 'assets/crohme/dev/inkml/'
-    lgs_root = 'assets/crohme/dev/lg/'
 
-    # LatexVocab.generate_formulas_file_from_inkmls(dist_inkmls_root, 'assets/vocab.txt')
-    # tokenizer = LatexVocab.create_tokenizer('assets/vocab.txt', min_freq=1)
-    # LatexVocab.save_tokenizer(tokenizer, 'assets/tokenizer.json')
-    tokenizer = LatexVocab.load_tokenizer('assets/tokenizer.json')
+    if load_vocab:
+        tokenizer = LatexVocab.load_tokenizer('assets/tokenizer.json')
+    else:
+        LatexVocab.generate_formulas_file_from_inkmls(dist_inkmls_root, 'assets/vocab.txt')
+        tokenizer = LatexVocab.create_tokenizer('assets/vocab.txt', min_freq=1)
+        LatexVocab.save_tokenizer(tokenizer, 'assets/tokenizer.json')
+
     vocab = tokenizer.get_vocab()
     vocab_size = tokenizer.get_vocab_size()
     end_node_token_id = tokenizer.encode("[EOS]", add_special_tokens=False).ids[0]
 
-    dataset = CrohmeDataset(images_root, inkmls_root, lgs_root, tokenizer, components_shape)
-    trainloader = DataLoader(dataset, batch_size, False, follow_batch=['x', 'tgt_x'])
-
-    train = True
-    eval = False
+    train = False
+    eval = True
 
     load_model = True
     load_model_path = "checkpoints/"
-    load_model_name = "MER_19_256_256_train_22-03-17_16-53-52_epoch9.pth"
+    load_model_name = "MER_19_256_256_dev_22-03-24_00-01-18_final.pth"
 
     model = Model(device, components_shape, input_edge_size, input_feature_size, hidden_size, embed_size, vocab_size, end_node_token_id)
     model.float()
@@ -71,10 +74,13 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     now = datetime.datetime.now()
-    model_name = 'MER_'+'19_256_256_train'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
-    # writer = SummaryWriter('runs/' + model_name)
+    model_name = 'MER_'+'19_256_256_dev'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
 
     if train:
+        trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape)
+        trainloader = DataLoader(trainset, batch_size, False, follow_batch=['x', 'tgt_x'])
+        writer = SummaryWriter('runs/' + model_name)
+
         model.train()
         for epoch in range(epochs):
             epoch_loss = 0
@@ -83,13 +89,11 @@ if __name__ == '__main__':
             for i, data_batch in tqdm(enumerate(trainloader)):
                 data_batch = data_batch.to(device)
 
-                continue
-
                 optimizer.zero_grad()
                 out = model(data_batch)
 
-                preds = torch.exp(out.out_x_pred)
-                max, max_id = preds.max(dim=1)
+                # preds = torch.exp(out.out_x_pred)
+                # max, max_id = preds.max(dim=1)
                 # print(max)
                 # print(max_id)
                 # print(tokenizer.decode(out.y.tolist()))
@@ -110,10 +114,10 @@ if __name__ == '__main__':
                 epoch_loss += batch_size * loss.item()
                 running_loss += loss.item()
 
-                # writer.add_scalar('Loss/train', loss.item(), epoch*dataset.__len__()/len(dataset) + i)
+                writer.add_scalar('Loss/train', loss.item(), epoch*len(trainloader) + i)
                 if i % 100 == 0:
                     print("running_loss: " + str(running_loss / 100))
-                    # writer.add_scalar('RunningLoss/train', (running_loss / 100), epoch*dataset.__len__()/len(dataset) + i)
+                    writer.add_scalar('RunningLoss/train', (running_loss / 100), epoch*len(trainloader) + i)
                     running_loss = 0
 
                 if i % 1000 == 0 and i != 0:
@@ -122,30 +126,38 @@ if __name__ == '__main__':
 
                 optimizer.step()
 
-            # writer.add_scalar('EpochLoss/train', epoch_loss / len(dataset), epoch + 1)
-            print(epoch_loss)
+            writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
+            print(epoch_loss / len(trainset))
+            # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
-        # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
+        torch.save(model.state_dict(), 'checkpoints/' + model_name + '_final' + '.pth')
 
     if eval:
-        model.eval()
+        testset = CrohmeDataset(test_images_root, test_inkmls_root, tokenizer, components_shape)
+        testloader = DataLoader(testset, 1, False, follow_batch=['x', 'tgt_x'])
+
+        model.train()
         with torch.no_grad():
-            for i, data_batch in enumerate(trainloader):
+            for i, data_batch in enumerate(testloader):
                 data_batch = data_batch.to(device)
                 out = model(data_batch)
 
                 preds = torch.exp(out.out_x_pred)
+                # print(out)
+                latex = SltParser.slt_to_latex(tokenizer, out.out_x_pred, out.out_edge_pred, out.tgt_edge_index, out.tgt_edge_type)
+                print(latex)
                 max, max_id = preds.max(dim=1)
-                print(tokenizer.decode(out.y.tolist()))
-                print(tokenizer.decode(max_id.tolist()))
+                # print('GT: ' + tokenizer.decode(out.y.tolist()))
+                # print('PR: ' + tokenizer.decode(max_id.tolist()))
+                # print("\n")
 
-                pc_edge_mask = (out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).to(torch.long).unsqueeze(1)
-                pc_edge_index = out.tgt_edge_index.t() * pc_edge_mask
-                pc_edge_index = pc_edge_index.t()
-
-                data = Data(x=out.out_x, edge_index=pc_edge_index)
-                G = to_networkx(data)
-                pos = graphviz_layout(G, prog="dot")
-                nx.draw(G, pos)
-                plt.show()
+                # pc_edge_mask = (out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).to(torch.long).unsqueeze(1)
+                # pc_edge_index = out.tgt_edge_index.t() * pc_edge_mask
+                # pc_edge_index = pc_edge_index.t()
+                #
+                # data = Data(x=out.out_x, edge_index=pc_edge_index)
+                # G = to_networkx(data)
+                # pos = graphviz_layout(G, prog="dot")
+                # nx.draw(G, pos)
+                # plt.show()
 

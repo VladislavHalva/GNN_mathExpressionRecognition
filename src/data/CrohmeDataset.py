@@ -1,39 +1,33 @@
-import math
 import os
-from itertools import chain
-from math import sqrt
 import random
+from math import sqrt
 from pathlib import Path
 import xml.etree.ElementTree as ET
-import re
-
 import cv2 as cv
 import numpy as np
 import torch
 import imghdr
 import logging
 from shapely.geometry import Polygon, LineString
-
 from matplotlib import pyplot as plt
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
-from tqdm import tqdm
 import networkx as nx
 from torch_geometric.utils import to_networkx
-import pydot
 from networkx.drawing.nx_pydot import graphviz_layout
 
 from src.data.GPairData import GPairData
 from src.data.LatexVocab import LatexVocab
+from src.definitions.MathMLAnnotationType import MathMLAnnotationType
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
+from src.definitions.exceptions.ItemLoadError import ItemLoadError
 
 
 class CrohmeDataset(Dataset):
-    def __init__(self, images_root, inkmls_root, lgs_root, tokenizer, components_shape=(32, 32)):
+    def __init__(self, images_root, inkmls_root, tokenizer, components_shape=(32, 32)):
         self.images_root = images_root
         self.inkmls_root = inkmls_root
-        self.lgs_root = lgs_root
         self.tokenizer = tokenizer
         self.components_shape = components_shape
         self.items = []
@@ -42,8 +36,6 @@ class CrohmeDataset(Dataset):
             raise FileNotFoundError('Images directory not found')
         if not os.path.exists(self.inkmls_root):
             raise FileNotFoundError('Inkmls directory not found')
-        if not os.path.exists(self.lgs_root):
-            raise FileNotFoundError('LGs directory not found')
 
         logging.info('Loading data...')
 
@@ -57,10 +49,7 @@ class CrohmeDataset(Dataset):
 
                     inkml_file = file_name + '.inkml'
                     inkml_path = os.path.join(inkmls_root, relative_path, inkml_file)
-                    lg_file = file_name + '.lg'
-                    lg_path = os.path.join(lgs_root, relative_path, lg_file)
-                    if os.path.isfile(inkml_path) and os.path.isfile(lg_path):
-                        self.items.append([image_path, inkml_path, lg_path])
+                    self.items.append([image_path, inkml_path])
 
         logging.info(str(len(self.items)) + ' items found')
 
@@ -68,27 +57,32 @@ class CrohmeDataset(Dataset):
         return len(self.items)
 
     def __getitem__(self, idx):
-        # TODO catch exception
-        item = self.items[idx]
-        image_path, inkml_path, lg_path = item
+        try:
+            item = self.items[idx]
+            image_path, inkml_path = item
 
-        x, edge_index, edge_attr = self.get_src_item(image_path)
-        y, tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path, lg_path)
+            # print(image_path)
 
-        data = GPairData(
-            x=x, edge_index=edge_index, edge_attr=edge_attr,
-            y=y, tgt_x=tgt_x, tgt_edge_index=tgt_edge_index,
-            tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
-        )
-        return data
+            x, edge_index, edge_attr = self.get_src_item(image_path)
+            y, tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path)
+
+            data = GPairData(
+                x=x, edge_index=edge_index, edge_attr=edge_attr,
+                y=y, tgt_x=tgt_x, tgt_edge_index=tgt_edge_index,
+                tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
+            )
+            return data
+        except ItemLoadError as e:
+            logging.warning(e)
+            return self.__getitem__(random.randrange(0, self.__len__()))
 
     def get_src_item(self, image_path):
         # extract components and build LoS graph
         components, components_mask = self.extract_components_from_image(image_path)
         edges, edge_features = self.get_line_of_sight_edges(components, components_mask)
         # self.draw_los(image_path, components, edges)
-        # BUILD PyG GRAPH DATA ELEMENT
 
+        # BUILD PyG GRAPH DATA ELEMENT
         # input components images
         component_images = [component['image'] for component in components]
         component_images = np.array(component_images)
@@ -116,17 +110,15 @@ class CrohmeDataset(Dataset):
 
         return x, edge_index, edge_attr
 
-    def get_tgt_item(self, inkml_path, lg_path):
+    def get_tgt_item(self, inkml_path):
         # extract ground truth latex sentence from inkml
         gt_latex = self.get_latex_from_inkml(inkml_path)
         gt_latex = LatexVocab.split_to_tokens(gt_latex)
         gt_latex_tokens = self.tokenizer.encode(gt_latex)
         y = torch.tensor(gt_latex_tokens.ids, dtype=torch.long)
 
-        print(gt_latex)
-
         # build target symbol layout tree
-        tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_slt(lg_path, inkml_path, gt_latex)
+        tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_slt(inkml_path, gt_latex)
 
         tgt_x = torch.tensor(tgt_x, dtype=torch.long)
         tgt_edge_index = torch.tensor(tgt_edge_index, dtype=torch.long)
@@ -323,94 +315,10 @@ class CrohmeDataset(Dataset):
             logging.warning("Inkml file does not contain latex groundtruth: " + filepath)
             return ""
 
-    def parse_lg(self, filepath):
-        if not os.path.isfile(filepath) and Path(filepath).suffix != '.lg':
-            return None, None
-
-        symbols = []
-        relations = []
-
-        # load layout graph from file
-        with open(filepath) as file:
-            reading_objects = False
-            reading_relations = False
-
-            for line in file:
-                line = line.strip()
-                if line == '':
-                    reading_objects = False
-                    reading_relations = False
-                elif re.search('# Objects\(\d+\):', line):
-                    # objects list section starts
-                    reading_objects = True
-                    reading_relations = False
-                elif re.search('# Relations from SRT:', line):
-                    # edges list section starts
-                    reading_objects = False
-                    reading_relations = True
-                elif re.search('#', line):
-                    # some other information section starts - skip
-                    reading_objects = False
-                    reading_relations = False
-                elif reading_objects:
-                    # in objects section
-                    obj_elements = line.split(', ')
-                    if len(obj_elements) >= 3:
-                        sid = obj_elements[1]
-                        symbol = obj_elements[2]
-                        # distinct fractions and minus
-                        if symbol == '-' and sid[0] == '_':
-                            symbol = '\\frac'
-                        symbols.append({
-                            'id': sid,
-                            'symbol': symbol
-                        })
-                elif reading_relations:
-                    # in edges section
-                    rel_elements = line.split(', ')
-                    if len(rel_elements) >= 4:
-                        relations.append({
-                            'src_id': rel_elements[1],
-                            'tgt_id': rel_elements[2],
-                            'type': SrtEdgeTypes.from_string(rel_elements[3])
-                        })
-
-        # check if all nodes mentioned in edges exist
-        symbol_ids = [symbol['id'] for symbol in symbols]
-        for relation in relations:
-            if not relation['src_id'] in symbol_ids or not relation['tgt_id'] in symbol_ids:
-                del relation
-
-        return symbols, relations
-
-    def build_slt_from_latex(self, latex):
-        # TODO REMOVE METHOD
-        symbols = []
-        relations = []
-
-        # define regexes to match element types
-        classic_cmd_re = r"(\\[a-zA-Z]+)(?![a-zA-Z])"
-        special_cmd_re = r"(\\[\{\}\|\#\,])"
-        var_re = r"(?<![\\\a-zA-Z])([a-zA-Z]+)(?![a-zA-Z])"
-        num_re = r"([0-9]+)"
-        special_char_re = r"(?<!\\)([^a-zA-Z0-9\s\\])"
-
-        prev_word = None
-        words = latex.split(' ')
-        for word in words:
-            pass
-
-        return symbols, relations
-
     def mathml_dfs(self, xml_ns, mathml_ns, root):
         s, r = [], []
-        if root.tag == mathml_ns + 'math':
-            for child in root:
-                s_a, r_a, _ = self.mathml_dfs(xml_ns, mathml_ns, child)
-                s.extend(s_a)
-                r.extend(r_a)
-            return s, r, None
-        elif root.tag == mathml_ns + 'mrow':
+
+        if root.tag in [mathml_ns + 'math', mathml_ns + 'mrow']:
             # just connect all children to row (right relation)
             linearly_connect = []
             for child in root:
@@ -583,42 +491,56 @@ class CrohmeDataset(Dataset):
             })
             return s, r, id
         else:
-            print('unknown MathML element: ' + root.tag)
-            raise AttributeError
+            raise ItemLoadError('unknown MathML element: ' + root.tag)
 
     def parse_mathml(self, inkml_path):
         if not os.path.isfile(inkml_path) and Path(inkml_path).suffix != '.inkml':
-            logging.warning("Inkml file does not exists: " + inkml_path)
-            return ""
+            raise ItemLoadError("Inkml file does not exists: " + inkml_path)
 
+        # define namespaces
         xml_namespace = '{http://www.w3.org/XML/1998/namespace}'
         doc_namespace = '{http://www.w3.org/2003/InkML}'
         mathml_namespace = '{http://www.w3.org/1998/Math/MathML}'
+
+        # parse inkml file and get root
         tree = ET.parse(inkml_path)
         root = tree.getroot()
 
-        annotation_mathml = root.find(doc_namespace + 'annotationXML[@type="truth"][@encoding="Content-MathML"]')
-        if not annotation_mathml:
-            logging.warning("Inkml file does not contain MathML annotation: " + inkml_path)
-            return ""
+        # get mathml annotation section and determine type
+        annotation_mathml_content = root.find(doc_namespace + 'annotationXML[@type="truth"][@encoding="Content-MathML"]')
+        annotation_mathml_presentation = root.find(doc_namespace + 'annotationXML[@type="truth"][@encoding="Presentation-MathML"]')
+        if annotation_mathml_content:
+            annotation_type = MathMLAnnotationType.CONTENT
+            annotation_mathml = annotation_mathml_content
+        elif annotation_mathml_presentation:
+            annotation_type = MathMLAnnotationType.PRESENTATION
+            annotation_mathml = annotation_mathml_presentation
+        else:
+            raise ItemLoadError("Inkml file does not contain MathML annotation: " + inkml_path)
 
-        math_root = annotation_mathml.find(mathml_namespace + 'math')
+        # find math definition root
+        if annotation_type == MathMLAnnotationType.CONTENT:
+            math_root = annotation_mathml.find(mathml_namespace + 'math')
+        else:
+            math_root = annotation_mathml.find(doc_namespace + 'math')
         if not math_root:
-            logging.warning("Inkml file does not contain math description root: " + inkml_path)
-            return ""
+            raise ItemLoadError("Inkml file does not contain math description root: " + inkml_path)
+
+        # parse expression and identify symbols and relations
 
         try:
-            s, r, _ = self.mathml_dfs(xml_namespace, mathml_namespace, math_root)
+            # different namespaces in various types of annotation
+            if annotation_type == MathMLAnnotationType.CONTENT:
+                s, r, _ = self.mathml_dfs(xml_namespace, mathml_namespace, math_root)
+            else:
+                s, r, _ = self.mathml_dfs(xml_namespace, doc_namespace, math_root)
         except AttributeError as e:
-            return [], []
+            raise ItemLoadError(e)
 
         return s, r
 
-    def get_slt(self, lg_path, inkml_path, latex):
-        # s, r = self.build_slt_from_latex(latex)
+    def get_slt(self, inkml_path, latex):
         symbols, relations = self.parse_mathml(inkml_path)
-        # symbols, relations = self.parse_lg(lg_path)
-        # TODO detect cycles in graph
 
         # tokenize symbols
         # TODO this gives only the first token in case of multiple per node
@@ -632,13 +554,14 @@ class CrohmeDataset(Dataset):
 
         # pad all nodes to max tokens count
         max_tokenized_length = len(max(x, key=lambda i: len(i)))
-        x = [el + [0] * (max_tokenized_length - len(el)) for el in x]
+        pad_token_id = self.tokenizer.encode('[PAD]', add_special_tokens=False).ids[0]
+        x = [el + [pad_token_id] * (max_tokenized_length - len(el)) for el in x]
 
         edge_index = []
         edge_type = []
         edge_relation = []
 
-        # build basic SLT graph on symbols and relations given by LG
+        # build basic SLT graph on symbols and relations given by MathML
         for relation in relations:
             src_arr_id = next((i for i, x in enumerate(symbols) if x['id'] == relation['src_id']), None)
             tgt_arr_id = next((i for i, x in enumerate(symbols) if x['id'] == relation['tgt_id']), None)
@@ -666,8 +589,10 @@ class CrohmeDataset(Dataset):
         edge_type.extend(SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER for _ in bro_edges)
         edge_relation.extend(SrtEdgeTypes.UNDEFINED for _ in bro_edges)
         edge_index.extend(self_edges)
-        edge_type.extend(SltEdgeTypes.CURRENT_CURRENT for I in self_edges)
+        edge_type.extend(SltEdgeTypes.CURRENT_CURRENT for _ in self_edges)
         edge_relation.extend(SrtEdgeTypes.UNDEFINED for _ in self_edges)
+
+        # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation)
 
         return x, edge_index, edge_type, edge_relation
 
@@ -760,7 +685,7 @@ class CrohmeDataset(Dataset):
         x_indices = list(range(len(x)))
         x_indices = torch.tensor(x_indices, dtype=torch.float)
 
-        symbols = [symbol['symbol'] for symbol in symbols]
+        symbols = [(str(i) + '. ' + symbol['symbol']) for i, symbol in enumerate(symbols)]
 
         pc_edges = []
         for i, edge in enumerate(edge_index):

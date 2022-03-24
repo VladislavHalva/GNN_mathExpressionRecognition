@@ -1,0 +1,2 @@
+class ItemLoadError(Exception):
+    pass
