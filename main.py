@@ -29,7 +29,7 @@ if __name__ == '__main__':
 
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 100
+    epochs = 1000
     batch_size = 2
     components_shape = (32, 32)
     input_edge_size = 19
@@ -40,11 +40,11 @@ if __name__ == '__main__':
     # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
     # for training
-    train_images_root = 'assets/crohme/dev/img/'
-    train_inkmls_root = 'assets/crohme/dev/inkml/'
+    train_images_root = 'assets/crohme/simple/img/'
+    train_inkmls_root = 'assets/crohme/simple/inkml/'
     # for test
-    test_images_root = 'assets/crohme/dev/img/'
-    test_inkmls_root = 'assets/crohme/dev/inkml/'
+    test_images_root = 'assets/crohme/simple/img/'
+    test_inkmls_root = 'assets/crohme/simple/inkml/'
 
 
     if load_vocab:
@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
     load_model = True
     load_model_path = "checkpoints/"
-    load_model_name = "MER_19_256_256_dev_22-03-24_00-01-18_final.pth"
+    load_model_name = "MER_3L_19_256_256_simple_22-03-24_20-57-21_final.pth"
 
     model = Model(device, components_shape, input_edge_size, input_feature_size, hidden_size, embed_size, vocab_size, end_node_token_id)
     model.float()
@@ -74,7 +74,7 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     now = datetime.datetime.now()
-    model_name = 'MER_'+'19_256_256_dev'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
+    model_name = 'MER_3L_'+'19_256_256_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
 
     if train:
         trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape)
@@ -92,13 +92,6 @@ if __name__ == '__main__':
                 optimizer.zero_grad()
                 out = model(data_batch)
 
-                # preds = torch.exp(out.out_x_pred)
-                # max, max_id = preds.max(dim=1)
-                # print(max)
-                # print(max_id)
-                # print(tokenizer.decode(out.y.tolist()))
-                # print(tokenizer.decode(max_id.tolist()))
-
                 # calculate loss as cross-entropy on output graph node predictions
                 loss_out_node = F.nll_loss(out.out_x_pred, out.tgt_x.squeeze(1))
 
@@ -111,18 +104,14 @@ if __name__ == '__main__':
                 loss = loss_out_node + loss_out_edge
                 loss.backward()
 
-                epoch_loss += batch_size * loss.item()
+                epoch_loss += loss.item()
                 running_loss += loss.item()
 
                 writer.add_scalar('Loss/train', loss.item(), epoch*len(trainloader) + i)
-                if i % 100 == 0:
+                if i % 100 == 0 and i != 0:
                     print("running_loss: " + str(running_loss / 100))
                     writer.add_scalar('RunningLoss/train', (running_loss / 100), epoch*len(trainloader) + i)
                     running_loss = 0
-
-                if i % 1000 == 0 and i != 0:
-                    pass
-                    # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
                 optimizer.step()
 
@@ -130,26 +119,28 @@ if __name__ == '__main__':
             print(epoch_loss / len(trainset))
             # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
+            if epoch_loss / len(trainset) < 0.3:
+                print("LOSS LOW ENOUGH")
+                break
+
         torch.save(model.state_dict(), 'checkpoints/' + model_name + '_final' + '.pth')
 
     if eval:
         testset = CrohmeDataset(test_images_root, test_inkmls_root, tokenizer, components_shape)
         testloader = DataLoader(testset, 1, False, follow_batch=['x', 'tgt_x'])
 
-        model.train()
+        model.eval()
         with torch.no_grad():
             for i, data_batch in enumerate(testloader):
                 data_batch = data_batch.to(device)
                 out = model(data_batch)
 
-                preds = torch.exp(out.out_x_pred)
-                latex = SltParser.slt_to_latex(tokenizer, out.out_x_pred, out.out_edge_pred, out.tgt_edge_index, out.tgt_edge_type)
-                print(latex)
-                exit()
-                max, max_id = preds.max(dim=1)
-                # print('GT: ' + tokenizer.decode(out.y.tolist()))
-                # print('PR: ' + tokenizer.decode(max_id.tolist()))
-                # print("\n")
+                latex = SltParser.slt_to_latex_predictions(tokenizer, out.out_x_pred, out.out_edge_pred, out.tgt_edge_index, out.tgt_edge_type)
+                print('GT: ' + tokenizer.decode(out.gt.tolist()))
+                print('PR: ' + latex)
+                print('nodes count: ' + str(out.out_x_pred.shape[0]))
+                print('edges count: ' + str(out.out_edge_pred.shape[0]))
+                print("\n")
 
                 # pc_edge_mask = (out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).to(torch.long).unsqueeze(1)
                 # pc_edge_index = out.tgt_edge_index.t() * pc_edge_mask

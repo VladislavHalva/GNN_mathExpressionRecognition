@@ -5,14 +5,14 @@ class GPairData(Data):
     def __init__(
             self,
             x=None, edge_index=None, edge_attr=None,
-            y=None, tgt_x=None, tgt_edge_index=None,
+            gt=None, tgt_x=None, tgt_edge_index=None,
             tgt_edge_type=None, tgt_edge_relation=None
     ):
         super().__init__()
         self.x = x
         self.edge_index = edge_index
         self.edge_attr = edge_attr
-        self.y = y
+        self.gt = gt
         self.tgt_x = tgt_x
         self.tgt_edge_index = tgt_edge_index
         self.tgt_edge_type = tgt_edge_type

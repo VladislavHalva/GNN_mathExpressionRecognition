@@ -14,7 +14,8 @@ class Encoder(nn.Module):
             Linear(input_edge_size, input_feature_size, bias=False),
             nn.ReLU())
         self.gat1 = GATLayer(input_feature_size, hidden_size)
-        self.gat2 = GATLayer(hidden_size, embed_size)
+        self.gat2 = GATLayer(hidden_size, hidden_size)
+        self.gat3 = GATLayer(hidden_size, embed_size)
 
     def forward(self, data):
         x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
@@ -24,9 +25,10 @@ class Encoder(nn.Module):
         # project edge features to node features dimensionality
         edge_attr = self.lin_edge(edge_attr)
 
-        # pass data through 2 layer GAT network
+        # pass data through 3 layer GAT network
         x, edge_index, edge_attr = self.gat1(x, edge_index, edge_attr)
         x, edge_index, edge_attr = self.gat2(x, edge_index, edge_attr)
+        x, edge_index, edge_attr = self.gat3(x, edge_index, edge_attr)
 
         # remove self loops added during GAT layers processing
         edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)

@@ -25,8 +25,15 @@ class SltParser:
         return roots[0]
 
     @staticmethod
-    def remove_selfloops(edge_index):
-        return [edge for edge in edge_index if edge[0] != edge[1]]
+    def remove_selfloops(edge_index, edge_rel):
+        keep = [True for _ in range(len(edge_index))]
+        for i, edge in enumerate(edge_index):
+            if edge[0] == edge[1]:
+                keep[i] = False
+
+        edge_index = [edge for i, edge in enumerate(edge_index) if keep[i]]
+        edge_rel = [r for i, r in enumerate(edge_rel) if keep[i]]
+        return edge_index, edge_rel
 
     @staticmethod
     def get_children(root_id, edge_index):
@@ -80,13 +87,6 @@ class SltParser:
             pass
 
         # common rules for super/subscripts and right positions
-        if len(superscript) > 0:
-            output.extend(['^', '{'])
-            for s in superscript:
-                output.extend(s)
-            for a in above:
-                output.extend(a)
-            output.append('}')
         if len(subscript) > 0:
             output.extend(['_', '{'])
             for s in subscript:
@@ -94,13 +94,20 @@ class SltParser:
             for b in below:
                 output.extend(b)
             output.append('}')
+        if len(superscript) > 0:
+            output.extend(['^', '{'])
+            for s in superscript:
+                output.extend(s)
+            for a in above:
+                output.extend(a)
+            output.append('}')
         if len(right) > 0:
             for r in right:
                 output.extend(r)
         return output
 
     @staticmethod
-    def slt_to_latex(tokenizer, x_pred, edge_rel_pred, edge_index, edge_type):
+    def slt_to_latex_predictions(tokenizer, x_pred, edge_rel_pred, edge_index, edge_type):
         # get symbols
         node_preds = torch.exp(x_pred)
         _, max_id = node_preds.max(dim=1)
@@ -112,6 +119,10 @@ class SltParser:
         _, max_id = edge_preds.max(dim=1)
         edge_relations = max_id
 
+        return SltParser.slt_to_latex(tokenizer, tokens, edge_relations, edge_index, edge_type)
+
+    @staticmethod
+    def slt_to_latex(tokenizer, tokens, edge_relations, edge_index, edge_type):
         # keep only parent-child edges
         edge_pc_indices = ((edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
         edge_index = edge_index.t()[edge_pc_indices]
@@ -125,11 +136,15 @@ class SltParser:
         edge_index = edge_index.tolist()
         edge_relations = edge_relations.tolist()
 
+        # remove self loops
+        # edge_index, edge_relations = SltParser.remove_selfloops(edge_index, edge_relations)
+
         # remove standalone nodes - end leaf nodes
-        max_src = max([edge[0] for edge in edge_index])
-        max_tgt = max([edge[1] for edge in edge_index])
-        max_id = max(max_src, max_tgt)
-        tokens = tokens[:(max_id + 1)]
+        if len(edge_index) > 0:
+            max_src = max([edge[0] for edge in edge_index])
+            max_tgt = max([edge[1] for edge in edge_index])
+            max_id = max(max_src, max_tgt)
+            tokens = tokens[:(max_id + 1)]
 
         # print(tokens)
         # print([[i, SrtEdgeTypes.to_string(rel)] for i,rel in enumerate(edge_relations)])

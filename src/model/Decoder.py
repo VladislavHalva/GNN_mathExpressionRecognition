@@ -24,6 +24,7 @@ class Decoder(nn.Module):
         self.embeds = nn.Embedding(vocab_size, embed_size)
         self.gcn1 = GCNDecLayer(device, hidden_size, embed_size, is_first=True)
         self.gcn2 = GCNDecLayer(device, hidden_size, embed_size, is_first=False)
+        self.gcn3 = GCNDecLayer(device, hidden_size, embed_size, is_first=False)
 
         self.lin_z_out = Linear(embed_size, vocab_size, bias=True)
         self.lin_g_out = Linear(2 * embed_size, len(SrtEdgeTypes))
@@ -36,7 +37,8 @@ class Decoder(nn.Module):
             data.out_x = torch.sum(data.out_x, dim=1)
             # gcn layers
             data.out_x = self.gcn1(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
-            data.out_x = self.gcn2(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
+            data.out_x = self.gcn1(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
+            data.out_x = self.gcn3(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
         else:
             data.out_x, data.tgt_edge_index, data.tgt_edge_type = self.generate_output_graph(data)
 
@@ -53,61 +55,78 @@ class Decoder(nn.Module):
         return data
 
     def generate_output_graph(self, data):
-        out_x = torch.zeros(0, dtype=torch.float).to(self.device)
-        tgt_edge_index = torch.zeros(0, dtype=torch.long).to(self.device)
-        tgt_edge_type = torch.zeros(0, dtype=torch.long).to(self.device)
-        out_x, tgt_edge_index, tgt_edge_type, _, _ = self.generate_output_subtree(data, out_x, tgt_edge_index,
-                                                                                  tgt_edge_type, None, None, None)
-        return out_x, tgt_edge_index, tgt_edge_type
+        x = data.x
+        y = torch.zeros(0, dtype=torch.float).to(self.device)
+        y_eindex = torch.zeros(0, dtype=torch.long).to(self.device)
+        y_etype = torch.zeros(0, dtype=torch.long).to(self.device)
+        y, y_eindex, y_etype, _, _ = self.generate_output_subtree(x, y, y_eindex,
+                                                                  y_etype, None, None, None)
 
-    def generate_output_subtree(self, data, x, edge_index, edge_type, x_root_id, x_root_parent_id,
-                                x_root_last_child_id):
+        return y, y_eindex, y_etype
+
+    def append_edge_with_type(self, edge_index, edge_type, src_id, tgt_id, etype):
+        edge = torch.tensor([[src_id], [tgt_id]], dtype=torch.long).to(self.device)
+        etype = torch.tensor([etype], dtype=torch.long).to(self.device)
+        edge_index = torch.cat([edge_index, edge], dim=1)
+        edge_type = torch.cat([edge_type, etype], dim=0)
+        return edge_index, edge_type
+
+    def generate_output_subtree(self, x, y, y_eindex, y_etype, parent_id, grandparent_id,
+                                last_sibling_id):
         # DFS traversal graph generation
+
         # generate new node and add it to graph nodes
-        new_node_id = x.size(0)
-        new_node = torch.zeros((1, self.embed_size), dtype=torch.float).to(self.device)
-        x = torch.cat([x, new_node], dim=0)
+        y_new_id = y.size(0)
+        y_new_id_tensor = torch.tensor([y_new_id], dtype=torch.long).to(self.device)
+        y_new = torch.zeros((1, self.embed_size), dtype=torch.float).to(self.device)
+        y = torch.cat([y, y_new], dim=0)
 
         # add self-loop edge
-        cc_edge = torch.tensor([[new_node_id], [new_node_id]], dtype=torch.long).to(self.device)
-        edge_index = torch.cat([edge_index, cc_edge], dim=1)
-        edge_type = torch.cat([edge_type, torch.tensor([SltEdgeTypes.CURRENT_CURRENT], dtype=torch.long).to(self.device)])
-        # add parent-child edge
-        if x_root_id:
-            pc_edge = torch.tensor([[x_root_id], [new_node_id]], dtype=torch.long).to(self.device)
-            edge_index = torch.cat([edge_index, pc_edge], dim=1)
-            edge_type = torch.cat([edge_type, torch.tensor([SltEdgeTypes.PARENT_CHILD], dtype=torch.long).to(self.device)])
-        # add grandparent-grandchild edge
-        if x_root_parent_id:
-            gg_edge = torch.tensor([[x_root_parent_id], [new_node_id]], dtype=torch.long).to(self.device)
-            edge_index = torch.cat([edge_index, gg_edge], dim=1)
-            edge_type = torch.cat([edge_type, torch.tensor([SltEdgeTypes.GRANDPARENT_GRANDCHILD], dtype=torch.long).to(self.device)])
-        # add leftBrother-rightBrother edge
-        if x_root_last_child_id:
-            bb_edge = torch.tensor([[x_root_last_child_id], [new_node_id]], dtype=torch.long).to(self.device)
-            edge_index = torch.cat([edge_index, bb_edge], dim=1)
-            edge_type = torch.cat([edge_type, torch.tensor([SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER], dtype=torch.long).to(self.device)])
+        y_eindex, y_etype = self.append_edge_with_type(y_eindex, y_etype, y_new_id, y_new_id,
+                                                       SltEdgeTypes.CURRENT_CURRENT)
+
+        if parent_id:
+            # add parent-child edge
+            y_eindex, y_etype = self.append_edge_with_type(y_eindex, y_etype, parent_id, y_new_id,
+                                                           SltEdgeTypes.PARENT_CHILD)
+        if grandparent_id:
+            # add grandparent-grandchild edge
+            y_eindex, y_etype = self.append_edge_with_type(y_eindex, y_etype, grandparent_id, y_new_id,
+                                                           SltEdgeTypes.GRANDPARENT_GRANDCHILD)
+        if last_sibling_id:
+            # add leftBrother-rightBrother edge
+            y_eindex, y_etype = self.append_edge_with_type(y_eindex, y_etype, last_sibling_id, y_new_id,
+                                                           SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER)
 
         # run through graph convolutional layers
-        x = self.gcn1(data.x, x, edge_index, edge_type, torch.tensor([new_node_id], dtype=torch.long))
-        x = self.gcn2(data.x, x, edge_index, edge_type, torch.tensor([new_node_id], dtype=torch.long))
+        y = self.gcn1(x, y, y_eindex, y_etype, y_new_id_tensor)
+        y = self.gcn2(x, y, y_eindex, y_etype, y_new_id_tensor)
+        y = self.gcn3(x, y, y_eindex, y_etype, y_new_id_tensor)
 
         # decode new node token and check if end leaf node
-        new_node_features = x[new_node_id].unsqueeze(0)
-        new_node_features = self.lin_z_out(new_node_features)
-        new_node_features = F.softmax(new_node_features, dim=1)
-        _, max_id = new_node_features.max(dim=1)
-        max_id = max_id.item()
+        y_new_features = y[y_new_id].unsqueeze(0)
+        y_new_features = self.lin_z_out(y_new_features)
+        y_new_features = F.softmax(y_new_features, dim=1)
+        _, predicted_token = y_new_features.max(dim=1)
+        predicted_token = predicted_token.item()
 
-        if max_id == self.end_node_token_id or x.size(0) == self.max_output_graph_size:
-            return x, edge_index, edge_type, True, None
+        print(predicted_token)
+
+        if predicted_token == self.end_node_token_id or y.size(0) == self.max_output_graph_size:
+            # generated node is leaf or max number of nodes reach --> end traversal
+            return y, y_eindex, y_etype, True, None
         else:
+            # generated node is not leaf --> proceed with subtree/child-nodes generation
             last_child_id = None
-            while x.size(0) < self.max_output_graph_size:
-                x, edge_index, edge_type, is_leaf, last_child_id = self.generate_output_subtree(data, x, edge_index,
-                                                                                                edge_type, new_node_id,
-                                                                                                x_root_id,
-                                                                                                last_child_id)
+            while y.size(0) < self.max_output_graph_size:
+                # limit to set max number of nodes, but otherwise keep generating until leaf end node is generated
+                y, y_eindex, y_etype, is_leaf, last_child_id = self.generate_output_subtree(x, y, y_eindex,
+                                                                                                        y_etype,
+                                                                                                        y_new_id,
+                                                                                                        parent_id,
+                                                                                                        last_child_id)
+
                 if is_leaf:
+                    # if leaf end node generated --> stop with this subtree and return to parent
                     break
-            return x, edge_index, edge_type, False, new_node_id
+            return y, y_eindex, y_etype, False, y_new_id

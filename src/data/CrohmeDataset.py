@@ -64,11 +64,11 @@ class CrohmeDataset(Dataset):
             # print(image_path)
 
             x, edge_index, edge_attr = self.get_src_item(image_path)
-            y, tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path)
+            gt, tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path)
 
             data = GPairData(
                 x=x, edge_index=edge_index, edge_attr=edge_attr,
-                y=y, tgt_x=tgt_x, tgt_edge_index=tgt_edge_index,
+                gt=gt, tgt_x=tgt_x, tgt_edge_index=tgt_edge_index,
                 tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
             )
             return data
