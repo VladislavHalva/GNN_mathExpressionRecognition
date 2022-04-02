@@ -22,9 +22,9 @@ class Decoder(nn.Module):
         self.max_output_graph_size = 70
 
         self.embeds = nn.Embedding(vocab_size, embed_size)
-        self.gcn1 = GCNDecLayer(device, hidden_size, embed_size, is_first=True)
-        self.gcn2 = GCNDecLayer(device, hidden_size, embed_size, is_first=False)
-        self.gcn3 = GCNDecLayer(device, hidden_size, embed_size, is_first=False)
+        self.gcn1 = GCNDecLayer(device, embed_size, embed_size, hidden_size, is_first=True)
+        self.gcn2 = GCNDecLayer(device, embed_size, hidden_size, hidden_size, is_first=False)
+        self.gcn3 = GCNDecLayer(device, embed_size, hidden_size, embed_size, is_first=False)
 
         self.lin_z_out = Linear(embed_size, vocab_size, bias=True)
         self.lin_g_out = Linear(2 * embed_size, len(SrtEdgeTypes))
@@ -37,8 +37,8 @@ class Decoder(nn.Module):
             data.out_x = torch.sum(data.out_x, dim=1)
             # gcn layers
             data.out_x = self.gcn1(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
-            # data.out_x = self.gcn1(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
-            # data.out_x = self.gcn3(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
+            data.out_x = self.gcn2(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
+            data.out_x = self.gcn3(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
         else:
             data.out_x, data.tgt_edge_index, data.tgt_edge_type = self.generate_output_graph(data)
 

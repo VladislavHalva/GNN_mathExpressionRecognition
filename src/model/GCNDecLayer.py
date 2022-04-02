@@ -8,28 +8,29 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 
 
 class GCNDecLayer(MessagePassing):
-    def __init__(self, device, hidden_size, embed_size, is_first=False):
+    def __init__(self, device, f_size, in_size, out_size, is_first=False):
         super(GCNDecLayer, self).__init__(node_dim=0, aggr='add')
         # node_dim = axis along which propagation is done
         # aggr = aggregation function (add = SUM)
 
         self.device = device
-        self.embed_size = embed_size
-        self.hidden_size = hidden_size
+        self.f_size = f_size  # input graph features size
+        self.in_size = in_size  # output graph layer in features size
+        self.out_size = out_size  # output graph layer out feature size
         self.is_first = is_first
 
-        self.lin_f_att = Linear(embed_size, embed_size, bias=True, weight_initializer='glorot')
-        self.lin_f_context = Linear(embed_size, hidden_size, bias=True, weight_initializer='glorot')
+        self.lin_f_att = Linear(f_size, in_size, bias=True, weight_initializer='glorot')
+        self.lin_f_context = Linear(f_size, out_size, bias=True, weight_initializer='glorot')
 
-        self.lin_gg = Linear(embed_size, hidden_size, bias=True, weight_initializer='glorot')
-        self.lin_pc = Linear(embed_size, hidden_size, bias=True, weight_initializer='glorot')
-        self.lin_bb = Linear(embed_size, hidden_size, bias=True, weight_initializer='glorot')
-        self.lin_cc = Linear(embed_size, hidden_size, bias=True, weight_initializer='glorot')
+        self.lin_gg = Linear(in_size, out_size, bias=True, weight_initializer='glorot')
+        self.lin_pc = Linear(in_size, out_size, bias=True, weight_initializer='glorot')
+        self.lin_bb = Linear(in_size, out_size, bias=True, weight_initializer='glorot')
+        self.lin_cc = Linear(in_size, out_size, bias=True, weight_initializer='glorot')
 
-        self.lin_h = Linear(hidden_size, embed_size, bias=True, weight_initializer='glorot')
-        self.lin_z = Linear(hidden_size, embed_size, bias=True, weight_initializer='glorot')
+        self.lin_h = Linear(out_size, in_size, bias=True, weight_initializer='glorot')
+        self.lin_z = Linear(out_size, out_size, bias=True, weight_initializer='glorot')
 
-        self.bias = Parameter(torch.Tensor(embed_size))
+        self.bias = Parameter(torch.Tensor(out_size))
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -121,9 +122,9 @@ class GCNDecLayer(MessagePassing):
         # get slices == unpack
         x_bro, x_pa, h = torch.unbind(packed_msg, dim=0)
         # remove padding added due to stacking
-        x_bro = x_bro[:, 0:self.embed_size]
-        x_pa = x_pa[:, 0:self.embed_size]
-        h = h[:, 0:self.hidden_size]
+        x_bro = x_bro[:, 0:self.in_size]
+        x_pa = x_pa[:, 0:self.in_size]
+        h = h[:, 0:self.out_size]
         # GLU activation on h - gcn feature vector
         h_in_and_condition = torch.cat([h, h], dim=1)
         h = F.glu(h_in_and_condition, dim=1)
