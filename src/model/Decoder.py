@@ -37,8 +37,8 @@ class Decoder(nn.Module):
             data.out_x = torch.sum(data.out_x, dim=1)
             # gcn layers
             data.out_x = self.gcn1(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
-            data.out_x = self.gcn1(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
-            data.out_x = self.gcn3(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
+            # data.out_x = self.gcn1(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
+            # data.out_x = self.gcn3(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
         else:
             data.out_x, data.tgt_edge_index, data.tgt_edge_type = self.generate_output_graph(data)
 

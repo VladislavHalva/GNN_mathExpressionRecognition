@@ -647,7 +647,7 @@ class CrohmeDataset(Dataset):
             # return merged list of gp edges
             return gp_edges
 
-    def get_bro_edges(self, edge_index):
+    def get_bro_edges_join_full_levels(self, edge_index):
         bro_edges = []
         root = self.get_tree_root(edge_index)
         root_children = [edge[1] for edge in edge_index if edge[0] == root]
@@ -674,6 +674,36 @@ class CrohmeDataset(Dataset):
                 if node_child not in visited:
                     queue.append(node_child)
                     levels[node_child] = levels[node] + 1
+
+        return bro_edges
+
+    def get_bro_edges(self, edge_index):
+        bro_edges = []
+        root = self.get_tree_root(edge_index)
+        root_children = [edge[1] for edge in edge_index if edge[0] == root]
+
+        # BFS traversal to identify left siblings edges
+        # init
+        prev_node = root
+        visited = [root]
+        queue = root_children
+        parents = {root: None}
+        for root_child in root_children:
+            parents[root_child] = root
+
+        # traverse tree
+        while queue:
+            node = queue.pop(0)
+            if parents[prev_node] == parents[node]:
+                bro_edges.append([prev_node, node])
+
+            prev_node = node
+            visited.append(node)
+            node_children = [edge[1] for edge in edge_index if edge[0] == node]
+            for node_child in node_children:
+                if node_child not in visited:
+                    queue.append(node_child)
+                    parents[node_child] = node
 
         return bro_edges
 

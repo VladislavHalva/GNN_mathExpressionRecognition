@@ -24,11 +24,6 @@ import datetime
 from src.utils.SltParser import SltParser
 
 if __name__ == '__main__':
-    a = torch.tensor([
-        [[[1, 2], [2, 3]]],
-        [[[4, 5], [5, 6]]]
-    ], dtype=torch.float)
-
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
@@ -39,7 +34,7 @@ if __name__ == '__main__':
     components_shape = (32, 32)
     input_edge_size = 19
     input_feature_size = 256
-    hidden_size = 256
+    hidden_size = 300
     embed_size = 256
 
     # to build vocabulary
@@ -134,11 +129,12 @@ if __name__ == '__main__':
         testset = CrohmeDataset(test_images_root, test_inkmls_root, tokenizer, components_shape)
         testloader = DataLoader(testset, 1, False, follow_batch=['x', 'tgt_x'])
 
-        model.eval()
+        model.train()
         with torch.no_grad():
             for i, data_batch in enumerate(testloader):
                 data_batch = data_batch.to(device)
                 out = model(data_batch)
+                break
 
                 latex = SltParser.slt_to_latex_predictions(tokenizer, out.out_x_pred, out.out_edge_pred, out.tgt_edge_index, out.tgt_edge_type)
                 # print('GT: ' + tokenizer.decode(out.gt.tolist()))
