@@ -9,14 +9,21 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 
 class GCNDecLayer(MessagePassing):
     def __init__(self, device, f_size, in_size, out_size, is_first=False):
+        """
+        :param device: torch device - cpu/gpu
+        :param f_size: input graph features size
+        :param in_size: processed (output) graph features size on input
+        :param out_size: processed (output) graph features size on output
+        :param is_first: whether this layer is first in sequence (required during training time only)
+        """
         super(GCNDecLayer, self).__init__(node_dim=0, aggr='add')
         # node_dim = axis along which propagation is done
         # aggr = aggregation function (add = SUM)
 
         self.device = device
-        self.f_size = f_size  # input graph features size
-        self.in_size = in_size  # output graph layer in features size
-        self.out_size = out_size  # output graph layer out feature size
+        self.f_size = f_size
+        self.in_size = in_size
+        self.out_size = out_size
         self.is_first = is_first
 
         self.lin_f_att = Linear(f_size, in_size, bias=True, weight_initializer='glorot')

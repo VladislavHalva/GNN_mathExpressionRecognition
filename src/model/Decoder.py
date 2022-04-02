@@ -13,21 +13,23 @@ from src.model.GCNDecLayer import GCNDecLayer
 
 
 class Decoder(nn.Module):
-    def __init__(self, device, hidden_size, embed_size, vocab_size, end_node_token_id):
+    def __init__(self, device, f_size, h_size, emb_size, vocab_size, end_node_token_id):
         super(Decoder, self).__init__()
         self.device = device
-        self.embed_size = embed_size
+        self.f_size = f_size
+        self.h_size = h_size
+        self.emb_size = emb_size
         self.vocab_size = vocab_size
         self.end_node_token_id = end_node_token_id
         self.max_output_graph_size = 70
 
-        self.embeds = nn.Embedding(vocab_size, embed_size)
-        self.gcn1 = GCNDecLayer(device, embed_size, embed_size, hidden_size, is_first=True)
-        self.gcn2 = GCNDecLayer(device, embed_size, hidden_size, hidden_size, is_first=False)
-        self.gcn3 = GCNDecLayer(device, embed_size, hidden_size, embed_size, is_first=False)
+        self.embeds = nn.Embedding(vocab_size, emb_size)
+        self.gcn1 = GCNDecLayer(device, f_size, emb_size, h_size, is_first=True)
+        self.gcn2 = GCNDecLayer(device, f_size, h_size, h_size, is_first=False)
+        self.gcn3 = GCNDecLayer(device, f_size, h_size, emb_size, is_first=False)
 
-        self.lin_z_out = Linear(embed_size, vocab_size, bias=True)
-        self.lin_g_out = Linear(2 * embed_size, len(SrtEdgeTypes))
+        self.lin_z_out = Linear(emb_size, vocab_size, bias=True)
+        self.lin_g_out = Linear(2 * emb_size, len(SrtEdgeTypes))
 
     def forward(self, data):
         if self.training:
@@ -78,7 +80,7 @@ class Decoder(nn.Module):
         # generate new node and add it to graph nodes
         y_new_id = y.size(0)
         y_new_id_tensor = torch.tensor([y_new_id], dtype=torch.long).to(self.device)
-        y_new = torch.zeros((1, self.embed_size), dtype=torch.float).to(self.device)
+        y_new = torch.zeros((1, self.emb_size), dtype=torch.float).to(self.device)
         y = torch.cat([y, y_new], dim=0)
 
         # add self-loop edge

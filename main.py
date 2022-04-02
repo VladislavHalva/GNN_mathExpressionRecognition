@@ -12,16 +12,13 @@ from torch_geometric.loader import DataLoader
 from torch_geometric.utils import to_networkx
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
-from networkx.drawing.nx_pydot import graphviz_layout
+import datetime
 
 from src.data.CrohmeDataset import CrohmeDataset
 from src.data.LatexVocab import LatexVocab
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.model.Model import Model
 
-import datetime
-
-from src.utils.SltParser import SltParser
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
@@ -32,10 +29,21 @@ if __name__ == '__main__':
     epochs = 1000
     batch_size = 2
     components_shape = (32, 32)
-    input_edge_size = 19
-    input_feature_size = 256
-    hidden_size = 300
-    embed_size = 256
+    edge_features = 19
+    enc_in_size = 256
+    enc_h_size = 400
+    enc_out_size = 400
+    dec_h_size = 256
+    emb_size = 256
+
+    load_model = False
+    load_model_path = "checkpoints/"
+    load_model_name = "MER_3L_19_256_256_simple_22-03-24_20-57-21_final.pth"
+
+    train = False
+    eval = True
+    save_run = False
+    print_train_info = False
 
     # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
@@ -45,7 +53,6 @@ if __name__ == '__main__':
     # for test
     test_images_root = 'assets/crohme/simple/img/'
     test_inkmls_root = 'assets/crohme/simple/inkml/'
-
 
     if load_vocab:
         tokenizer = LatexVocab.load_tokenizer('assets/tokenizer.json')
@@ -58,14 +65,11 @@ if __name__ == '__main__':
     vocab_size = tokenizer.get_vocab_size()
     end_node_token_id = tokenizer.encode("[EOS]", add_special_tokens=False).ids[0]
 
-    train = False
-    eval = True
-
-    load_model = False
-    load_model_path = "checkpoints/"
-    load_model_name = "MER_3L_19_256_256_simple_22-03-24_20-57-21_final.pth"
-
-    model = Model(device, components_shape, input_edge_size, input_feature_size, hidden_size, embed_size, vocab_size, end_node_token_id)
+    model = Model(
+        device,
+        components_shape, edge_features,
+        enc_in_size, enc_h_size, enc_out_size, dec_h_size, emb_size,
+        vocab_size, end_node_token_id)
     model.float()
     if load_model:
         model.load_state_dict(torch.load(os.path.join(load_model_path, load_model_name)))
@@ -79,13 +83,16 @@ if __name__ == '__main__':
     if train:
         trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape)
         trainloader = DataLoader(trainset, batch_size, False, follow_batch=['x', 'tgt_x'])
-        writer = SummaryWriter('runs/' + model_name)
+        if save_run:
+            writer = SummaryWriter('runs/' + model_name)
 
         model.train()
         for epoch in range(epochs):
             epoch_loss = 0
             running_loss = 0
-            print("EPOCH: " + str(epoch))
+            if print_train_info:
+                print("EPOCH: " + str(epoch))
+
             for i, data_batch in tqdm(enumerate(trainloader)):
                 data_batch = data_batch.to(device)
 
@@ -107,17 +114,23 @@ if __name__ == '__main__':
                 epoch_loss += loss.item()
                 running_loss += loss.item()
 
-                writer.add_scalar('Loss/train', loss.item(), epoch*len(trainloader) + i)
+                if save_run:
+                    writer.add_scalar('Loss/train', loss.item(), epoch*len(trainloader) + i)
                 if i % 100 == 0 and i != 0:
-                    print("running_loss: " + str(running_loss / 100))
-                    writer.add_scalar('RunningLoss/train', (running_loss / 100), epoch*len(trainloader) + i)
+                    if print_train_info:
+                        print("running_loss: " + str(running_loss / 100))
+                    if save_run:
+                        writer.add_scalar('RunningLoss/train', (running_loss / 100), epoch*len(trainloader) + i)
                     running_loss = 0
 
                 optimizer.step()
 
-            writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
-            print(epoch_loss / len(trainset))
-            # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
+            if save_run:
+                writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
+            if print_train_info:
+                print(epoch_loss / len(trainset))
+            if save_run:
+                torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
             if epoch_loss / len(trainset) < 0.3:
                 print("LOSS LOW ENOUGH")
