@@ -110,8 +110,6 @@ class Decoder(nn.Module):
         _, predicted_token = y_new_features.max(dim=1)
         predicted_token = predicted_token.item()
 
-        print(predicted_token)
-
         if predicted_token == self.end_node_token_id or y.size(0) == self.max_output_graph_size:
             # generated node is leaf or max number of nodes reach --> end traversal
             return y, y_eindex, y_etype, True, None

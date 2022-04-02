@@ -59,7 +59,7 @@ class GATLayer(MessagePassing):
 
     def edge_update(self, x_i, x_j, edge_attr):
         concatenated_features = torch.cat((x_i, edge_attr, x_j), dim=-1)
-        return self.lin_edge_update(concatenated_features)
+        return F.leaky_relu(self.lin_edge_update(concatenated_features))
 
     def message(self, x_j, alpha_j, alpha_i, edge_attr, index, ptr, size_i):
         # sum attention contributions of src and tgt edge node features
@@ -70,7 +70,7 @@ class GATLayer(MessagePassing):
         alpha = alpha + alpha_edge
 
         # compute node feature update
-        alpha = F.leaky_relu(alpha, 0.2)
+        alpha = F.leaky_relu(alpha, 0.1)
         alpha = softmax(alpha, index, ptr, size_i)
         alpha = F.dropout(alpha, p=0.1, training=self.training)
-        return x_j * alpha.unsqueeze(-1)
+        return F.leaky_relu(x_j * alpha.unsqueeze(-1), 0.1)

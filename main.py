@@ -24,6 +24,11 @@ import datetime
 from src.utils.SltParser import SltParser
 
 if __name__ == '__main__':
+    a = torch.tensor([
+        [[[1, 2], [2, 3]]],
+        [[[4, 5], [5, 6]]]
+    ], dtype=torch.float)
+
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
@@ -61,7 +66,7 @@ if __name__ == '__main__':
     train = False
     eval = True
 
-    load_model = True
+    load_model = False
     load_model_path = "checkpoints/"
     load_model_name = "MER_3L_19_256_256_simple_22-03-24_20-57-21_final.pth"
 
@@ -136,11 +141,11 @@ if __name__ == '__main__':
                 out = model(data_batch)
 
                 latex = SltParser.slt_to_latex_predictions(tokenizer, out.out_x_pred, out.out_edge_pred, out.tgt_edge_index, out.tgt_edge_type)
-                print('GT: ' + tokenizer.decode(out.gt.tolist()))
-                print('PR: ' + latex)
-                print('nodes count: ' + str(out.out_x_pred.shape[0]))
-                print('edges count: ' + str(out.out_edge_pred.shape[0]))
-                print("\n")
+                # print('GT: ' + tokenizer.decode(out.gt.tolist()))
+                # print('PR: ' + latex)
+                # print('nodes count: ' + str(out.out_x_pred.shape[0]))
+                # print('edges count: ' + str(out.out_edge_pred.shape[0]))
+                # print("\n")
 
                 # pc_edge_mask = (out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).to(torch.long).unsqueeze(1)
                 # pc_edge_index = out.tgt_edge_index.t() * pc_edge_mask
