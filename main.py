@@ -1,5 +1,7 @@
 import logging
 import os.path
+import sys
+import timeit
 from itertools import chain
 
 import networkx as nx
@@ -26,8 +28,8 @@ if __name__ == '__main__':
 
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 1000
-    batch_size = 2
+    epochs = 100
+    batch_size = 4
     components_shape = (32, 32)
     edge_features = 19
     enc_in_size = 256
@@ -42,18 +44,22 @@ if __name__ == '__main__':
 
     train = True
     train_sufficient_loss = 0.1
-    evaluate = True
-    save_run = True
+    evaluate = False
+    save_run = False
     print_train_info = True
 
     # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
     # for training
-    train_images_root = 'assets/crohme/simple/img/'
-    train_inkmls_root = 'assets/crohme/simple/inkml/'
+    train_images_root = 'assets/crohme/train/img/'
+    train_inkmls_root = 'assets/crohme/train/inkml/'
     # for test
     test_images_root = 'assets/crohme/simple/img/'
     test_inkmls_root = 'assets/crohme/simple/inkml/'
+
+    # folder where data item representations will be stored
+    tmp_path = 'temp'
+    tmp_path = None
 
     if load_vocab:
         tokenizer = LatexVocab.load_tokenizer('assets/tokenizer.json')
@@ -79,10 +85,11 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     now = datetime.datetime.now()
-    model_name = 'MER_3L_'+'19_256_400_256_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
+    model_name = 'MER_3L_'+'19_256_400_256_train'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
 
     if train:
-        trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape)
+        trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape, tmp_path)
+
         trainloader = DataLoader(trainset, batch_size, False, follow_batch=['x', 'tgt_y'])
         if save_run:
             writer = SummaryWriter('runs/' + model_name)
@@ -137,7 +144,8 @@ if __name__ == '__main__':
                 print("LOSS LOW ENOUGH")
                 break
 
-        torch.save(model.state_dict(), 'checkpoints/' + model_name + '_final' + '.pth')
+        if save_run:
+            torch.save(model.state_dict(), 'checkpoints/' + model_name + '_final' + '.pth')
 
     if evaluate:
         testset = CrohmeDataset(test_images_root, test_inkmls_root, tokenizer, components_shape)
@@ -147,6 +155,7 @@ if __name__ == '__main__':
         with torch.no_grad():
             for i, data_batch in enumerate(testloader):
                 data_batch = data_batch.to(device)
+
                 out = model(data_batch)
 
                 latex = SltParser.slt_to_latex_predictions(tokenizer, out.y_pred, out.y_edge_pred, out.y_edge_index, out.y_edge_type)

@@ -1,4 +1,5 @@
 import os
+import pickle
 import random
 from math import sqrt
 from pathlib import Path
@@ -25,13 +26,14 @@ from src.definitions.exceptions.ItemLoadError import ItemLoadError
 
 
 class CrohmeDataset(Dataset):
-    def __init__(self, images_root, inkmls_root, tokenizer, components_shape=(32, 32)):
+    def __init__(self, images_root, inkmls_root, tokenizer, components_shape=(32, 32), tmp_path=None):
         self.images_root = images_root
         self.inkmls_root = inkmls_root
         self.tokenizer = tokenizer
         self.components_shape = components_shape
         self.edge_features = 19
         self.items = []
+        self.tmp_path = tmp_path
 
         if not os.path.exists(self.images_root):
             raise FileNotFoundError('Images directory not found')
@@ -50,7 +52,7 @@ class CrohmeDataset(Dataset):
 
                     inkml_file = file_name + '.inkml'
                     inkml_path = os.path.join(inkmls_root, relative_path, inkml_file)
-                    self.items.append([image_path, inkml_path])
+                    self.items.append([image_path, inkml_path, file_name])
 
         logging.info(str(len(self.items)) + ' items found')
 
@@ -60,19 +62,36 @@ class CrohmeDataset(Dataset):
     def __getitem__(self, idx):
         try:
             item = self.items[idx]
-            image_path, inkml_path = item
+            image_path, inkml_path, file_name = item
 
-            # get source graph - LoS
-            x, edge_index, edge_attr = self.get_src_item(image_path)
-            # get tgt graph - SLT, and LaTeX ground-truth
-            gt, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path)
-            # build dataset item
-            data = GPairData(
-                x=x, edge_index=edge_index, edge_attr=edge_attr,
-                gt=gt, tgt_y=tgt_y, tgt_edge_index=tgt_edge_index,
-                tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
-            )
-            return data
+            if self.tmp_path:
+                tmp_file_path = os.path.join(self.tmp_path, file_name + '.tmp')
+
+            if self.tmp_path and os.path.isfile(tmp_file_path):
+                # load temp if exists
+                with open(tmp_file_path, 'rb') as tmp_file:
+                    data = pickle.load(tmp_file)
+                    return data
+            else:
+                # build data if temp not exists
+                # get source graph - LoS
+                x, edge_index, edge_attr = self.get_src_item(image_path)
+                # get tgt graph - SLT, and LaTeX ground-truth
+                gt, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path)
+                # build dataset item
+                data = GPairData(
+                    x=x, edge_index=edge_index, edge_attr=edge_attr,
+                    gt=gt, tgt_y=tgt_y, tgt_edge_index=tgt_edge_index,
+                    tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
+                )
+
+                if self.tmp_path:
+                    # save for next epoch/train run
+                    if not os.path.isfile(tmp_file_path):
+                        with open(tmp_file_path, 'wb') as tmp_file:
+                            pickle.dump(data, tmp_file)
+
+                return data
         except ItemLoadError as e:
             # if error while loading item - fetch another instead
             logging.warning(e)
@@ -545,9 +564,17 @@ class CrohmeDataset(Dataset):
 
         return s, r
 
+    def append_special_symbols_with_bslash(self, symbols):
+        sp_symbols = self.get_special_symbols_list()
+        for i, symbol in enumerate(symbols):
+            if symbol['symbol'] in sp_symbols:
+                symbols[i]['symbol'] = "\\" + symbols[i]['symbol']
+        return symbols
+
+
     def get_slt(self, inkml_path, latex):
         symbols, relations = self.parse_mathml(inkml_path)
-
+        symbols = self.append_special_symbols_with_bslash(symbols)
         # tokenize symbols
         # TODO this gives only the first token in case of multiple per node
         x = [[self.tokenizer.encode(s['symbol'], add_special_tokens=False).ids[0]] for s in symbols]
@@ -719,3 +746,12 @@ class CrohmeDataset(Dataset):
         nx.draw(G, pos, with_labels=True)
         plt.draw()
         plt.show()
+
+    def get_special_symbols_list(self):
+        return [
+            'log', 'sum', 'cos', 'sin', 'forall',
+            'ctdot', 'int', 'ne', 'exists', 'rightarrow', 'infty',
+            'alpha', 'beta', 'gamma', 'delta', 'sigma', 'mu', 'phi',
+            'Alpha', 'Beta', 'Gamma', 'Delta', 'Sigma', 'Mu', 'Phi',
+            'prime', 'times'
+        ]
