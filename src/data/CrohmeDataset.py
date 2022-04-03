@@ -30,6 +30,7 @@ class CrohmeDataset(Dataset):
         self.inkmls_root = inkmls_root
         self.tokenizer = tokenizer
         self.components_shape = components_shape
+        self.edge_features = 19
         self.items = []
 
         if not os.path.exists(self.images_root):
@@ -61,18 +62,19 @@ class CrohmeDataset(Dataset):
             item = self.items[idx]
             image_path, inkml_path = item
 
-            # print(image_path)
-
+            # get source graph - LoS
             x, edge_index, edge_attr = self.get_src_item(image_path)
-            gt, tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path)
-
+            # get tgt graph - SLT, and LaTeX ground-truth
+            gt, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path)
+            # build dataset item
             data = GPairData(
                 x=x, edge_index=edge_index, edge_attr=edge_attr,
-                gt=gt, tgt_x=tgt_x, tgt_edge_index=tgt_edge_index,
+                gt=gt, tgt_y=tgt_y, tgt_edge_index=tgt_edge_index,
                 tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
             )
             return data
         except ItemLoadError as e:
+            # if error while loading item - fetch another instead
             logging.warning(e)
             return self.__getitem__(random.randrange(0, self.__len__()))
 
@@ -91,22 +93,22 @@ class CrohmeDataset(Dataset):
             dtype=torch.float)
         x = torch.unsqueeze(x, 1)
 
-        # input edges - and make undirected
+        # input edges - and make undirected - first in one direction, than backward
         edge_index = torch.tensor(
             [edge_idx['components'] for edge_idx in edges] +
             [[edge_idx['components'][1], edge_idx['components'][0]] for edge_idx in edges],
             dtype=torch.long)
         edge_index = edge_index.t().contiguous()
 
-        # input edges attributes
+        # input edges attributes - also create backward edge attributes (from the forward ones)
         edge_attr = torch.tensor(edge_features, dtype=torch.float)
         edge_attr = self.add_backward_edge_attr(edge_attr)
 
         if edge_index.size(0) == 0:
             # prevent error in case of empty edge set
-            # add some self loop
-            edge_index = torch.tensor([[0], [0]], dtype=torch.long)
-            edge_attr = torch.zeros((1, 19), dtype=torch.float)
+            # add empty list of desired shape
+            edge_index = torch.tensor([[], []], dtype=torch.long)
+            edge_attr = torch.zeros((0, self.edge_features), dtype=torch.float)
 
         return x, edge_index, edge_attr
 
@@ -115,19 +117,19 @@ class CrohmeDataset(Dataset):
         gt_latex = self.get_latex_from_inkml(inkml_path)
         gt_latex = LatexVocab.split_to_tokens(gt_latex)
         gt_latex_tokens = self.tokenizer.encode(gt_latex)
-        y = torch.tensor(gt_latex_tokens.ids, dtype=torch.long)
+        gt = torch.tensor(gt_latex_tokens.ids, dtype=torch.long)
 
         # build target symbol layout tree
-        tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_slt(inkml_path, gt_latex)
+        tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_slt(inkml_path, gt_latex)
 
-        tgt_x = torch.tensor(tgt_x, dtype=torch.long)
+        tgt_y = torch.tensor(tgt_y, dtype=torch.long)
         tgt_edge_index = torch.tensor(tgt_edge_index, dtype=torch.long)
         tgt_edge_type = torch.tensor(tgt_edge_type, dtype=torch.long)
         tgt_edge_relation = torch.tensor(tgt_edge_relation, dtype=torch.long)
 
         tgt_edge_index = tgt_edge_index.t().contiguous()
 
-        return y, tgt_x, tgt_edge_index, tgt_edge_type, tgt_edge_relation
+        return gt, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation
 
     def extract_components_from_image(self, imagepath):
         img = cv.imread(imagepath, cv.IMREAD_GRAYSCALE)
@@ -136,7 +138,6 @@ class CrohmeDataset(Dataset):
         # connected components analysis
         num_labels, labels, stats, centroid = cv.connectedComponentsWithStats(
             image=inv_img, connectivity=8, ltype=cv.CV_32S)
-
         # extract separate components - 0 is background
         components = []
         for i in range(1, num_labels):
@@ -146,7 +147,6 @@ class CrohmeDataset(Dataset):
             h = stats[i, cv.CC_STAT_HEIGHT]
             area = stats[i, cv.CC_STAT_AREA]
             (cX, cY) = centroid[i]
-
             # mask processed component
             component_mask = (labels != i).astype("uint8") * 255
             # extract component area - bounding box
@@ -166,8 +166,7 @@ class CrohmeDataset(Dataset):
                 ],
                 'centroid': (cX, cY)
             })
-
-        # shift components by one -> matches ids in list
+        # shift components by one in mask -> so that they match their ids in components list
         components_mask = labels - 1
         return components, components_mask
 
@@ -190,7 +189,7 @@ class CrohmeDataset(Dataset):
                     if collides:
                         some_collision = True
                         break
-
+                # no collision - append to final edge-set
                 if not some_collision:
                     edges.append({
                         'components': [i, j],
@@ -252,6 +251,13 @@ class CrohmeDataset(Dataset):
         return edges, edge_features
 
     def add_backward_edge_attr(self, edge_attr):
+        """
+        Transforms extracted edge features in one direction, so that they
+        match the values that would be calculated for opposite direction.
+        Without new extraction - only "inverts" the values in appropriate way.
+        :param edge_attr: edge attributes for directed edges
+        :return: edge_attr for edges in both directions
+        """
         bw_edge_attr = torch.clone(edge_attr)
         if bw_edge_attr.size(0) > 0:
             # if there are some attributes only - prevent IndexError
@@ -647,36 +653,6 @@ class CrohmeDataset(Dataset):
             # return merged list of gp edges
             return gp_edges
 
-    def get_bro_edges_join_full_levels(self, edge_index):
-        bro_edges = []
-        root = self.get_tree_root(edge_index)
-        root_children = [edge[1] for edge in edge_index if edge[0] == root]
-
-        # BFS traversal to identify left siblings edges
-        # init
-        prev_node = root
-        visited = [root]
-        queue = root_children
-        levels = {root: 0}
-        for root_child in root_children:
-            levels[root_child] = levels[root] + 1
-
-        # traverse tree
-        while queue:
-            node = queue.pop(0)
-            if levels[prev_node] == levels[node]:
-                bro_edges.append([prev_node, node])
-
-            prev_node = node
-            visited.append(node)
-            node_children = [edge[1] for edge in edge_index if edge[0] == node]
-            for node_child in node_children:
-                if node_child not in visited:
-                    queue.append(node_child)
-                    levels[node_child] = levels[node] + 1
-
-        return bro_edges
-
     def get_bro_edges(self, edge_index):
         bro_edges = []
         root = self.get_tree_root(edge_index)
@@ -711,7 +687,7 @@ class CrohmeDataset(Dataset):
         self_loop_edges = [[i, i] for i in range(nodes_count)]
         return self_loop_edges
 
-    def draw_slt(self, symbols, x, edge_index, edge_type, edge_relation):
+    def draw_slt(self, symbols, x, edge_index, edge_type, edge_relation, include_end_nodes=False):
         x_indices = list(range(len(x)))
         x_indices = torch.tensor(x_indices, dtype=torch.float)
 
@@ -720,7 +696,8 @@ class CrohmeDataset(Dataset):
         pc_edges = []
         for i, edge in enumerate(edge_index):
             if edge_type[i] == SltEdgeTypes.PARENT_CHILD:
-                pc_edges.append(edge)
+                if include_end_nodes or edge_relation[i] != SrtEdgeTypes.TO_ENDNODE:
+                    pc_edges.append(edge)
 
         edge_index = torch.tensor(pc_edges, dtype=torch.long)
         edge_index = edge_index.t().contiguous()
@@ -732,6 +709,12 @@ class CrohmeDataset(Dataset):
 
         G = to_networkx(data=data, to_undirected=False)
         G = nx.relabel_nodes(G, labeldict)
+
+        if not include_end_nodes:
+            for idx in range(len(x_indices)):
+                if idx >= len(symbols):
+                    G.remove_node(idx)
+
         pos = graphviz_layout(G, prog="dot")
         nx.draw(G, pos, with_labels=True)
         plt.draw()

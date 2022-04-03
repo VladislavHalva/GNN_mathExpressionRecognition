@@ -1,0 +1,2 @@
+class ModelParamsError(Exception):
+    pass

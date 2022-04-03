@@ -1,9 +1,4 @@
-import networkx as nx
 import torch
-from matplotlib import pyplot as plt
-from networkx.drawing.nx_pydot import graphviz_layout
-from torch_geometric.data import Data
-from torch_geometric.utils import to_networkx
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes

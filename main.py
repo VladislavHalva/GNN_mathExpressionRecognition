@@ -18,7 +18,7 @@ from src.data.CrohmeDataset import CrohmeDataset
 from src.data.LatexVocab import LatexVocab
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.model.Model import Model
-
+from src.utils.SltParser import SltParser
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
@@ -26,7 +26,7 @@ if __name__ == '__main__':
 
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 1
+    epochs = 1000
     batch_size = 2
     components_shape = (32, 32)
     edge_features = 19
@@ -38,13 +38,13 @@ if __name__ == '__main__':
 
     load_model = False
     load_model_path = "checkpoints/"
-    load_model_name = "MER_3L_19_256_400_256_simple_22-03-24_20-57-21_final.pth"
+    load_model_name = "MER_3L_19_256_400_256_simple_22-04-03_19-49-43_final.pth"
 
     train = True
-    train_sufficient_loss = 0.05
-    eval = False
-    save_run = False
-    print_train_info = False
+    train_sufficient_loss = 0.1
+    evaluate = True
+    save_run = True
+    print_train_info = True
 
     # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
@@ -79,11 +79,11 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     now = datetime.datetime.now()
-    model_name = 'MER_3L_'+'19_256_256_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
+    model_name = 'MER_3L_'+'19_256_400_256_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
 
     if train:
         trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape)
-        trainloader = DataLoader(trainset, batch_size, False, follow_batch=['x', 'tgt_x'])
+        trainloader = DataLoader(trainset, batch_size, False, follow_batch=['x', 'tgt_y'])
         if save_run:
             writer = SummaryWriter('runs/' + model_name)
 
@@ -100,15 +100,13 @@ if __name__ == '__main__':
                 optimizer.zero_grad()
                 out = model(data_batch)
 
-                exit()
-
                 # calculate loss as cross-entropy on output graph node predictions
-                loss_out_node = F.nll_loss(out.out_x_pred, out.tgt_x.squeeze(1))
+                loss_out_node = F.nll_loss(out.y_pred, out.tgt_y.squeeze(1))
 
                 # calculate loss as cross-entropy on output graph SRT edge type predictions
                 tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
                 tgt_pc_edge_relation = out.tgt_edge_relation[tgt_edge_pc_indices]
-                out_pc_edge_relation = out.out_edge_pred[tgt_edge_pc_indices]
+                out_pc_edge_relation = out.y_edge_pred[tgt_edge_pc_indices]
                 loss_out_edge = F.nll_loss(out_pc_edge_relation, tgt_pc_edge_relation)
 
                 loss = loss_out_node + loss_out_edge
@@ -141,31 +139,22 @@ if __name__ == '__main__':
 
         torch.save(model.state_dict(), 'checkpoints/' + model_name + '_final' + '.pth')
 
-    if eval:
+    if evaluate:
         testset = CrohmeDataset(test_images_root, test_inkmls_root, tokenizer, components_shape)
-        testloader = DataLoader(testset, 1, False, follow_batch=['x', 'tgt_x'])
+        testloader = DataLoader(testset, 1, False, follow_batch=['x', 'tgt_y'])
 
         model.train()
         with torch.no_grad():
             for i, data_batch in enumerate(testloader):
                 data_batch = data_batch.to(device)
                 out = model(data_batch)
-                break
 
-                latex = SltParser.slt_to_latex_predictions(tokenizer, out.out_x_pred, out.out_edge_pred, out.tgt_edge_index, out.tgt_edge_type)
+                latex = SltParser.slt_to_latex_predictions(tokenizer, out.y_pred, out.y_edge_pred, out.y_edge_index, out.y_edge_type)
                 print('GT: ' + tokenizer.decode(out.gt.tolist()))
                 print('PR: ' + latex)
-                print('nodes count: ' + str(out.out_x_pred.shape[0]))
-                print('edges count: ' + str(out.out_edge_pred.shape[0]))
+                print('nodes count: ' + str(out.y_pred.shape[0]))
+                print('edges count: ' + str(out.y_edge_pred.shape[0]))
                 print("\n")
 
-                # pc_edge_mask = (out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).to(torch.long).unsqueeze(1)
-                # pc_edge_index = out.tgt_edge_index.t() * pc_edge_mask
-                # pc_edge_index = pc_edge_index.t()
-                #
-                # data = Data(x=out.out_x, edge_index=pc_edge_index)
-                # G = to_networkx(data)
-                # pos = graphviz_layout(G, prog="dot")
-                # nx.draw(G, pos)
-                # plt.show()
+                break
 

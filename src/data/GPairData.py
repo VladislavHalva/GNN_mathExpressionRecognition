@@ -5,7 +5,7 @@ class GPairData(Data):
     def __init__(
             self,
             x=None, edge_index=None, edge_attr=None,
-            gt=None, tgt_x=None, tgt_edge_index=None,
+            gt=None, tgt_y=None, tgt_edge_index=None,
             tgt_edge_type=None, tgt_edge_relation=None
     ):
         super().__init__()
@@ -13,7 +13,7 @@ class GPairData(Data):
         self.edge_index = edge_index
         self.edge_attr = edge_attr
         self.gt = gt
-        self.tgt_x = tgt_x
+        self.tgt_y = tgt_y
         self.tgt_edge_index = tgt_edge_index
         self.tgt_edge_type = tgt_edge_type
         self.tgt_edge_relation = tgt_edge_relation
@@ -22,7 +22,7 @@ class GPairData(Data):
         if key == 'edge_index':
             return self.x.size(0)
         if key == 'tgt_edge_index':
-            return self.tgt_x.size(0)
+            return self.tgt_y.size(0)
         else:
             return super().__inc__(key, value, *args, **kwargs)
 

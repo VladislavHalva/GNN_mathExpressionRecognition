@@ -9,6 +9,7 @@ from torch_geometric.utils import to_networkx
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
+from src.definitions.exceptions.ModelParamsError import ModelParamsError
 from src.model.GCNDecLayer import GCNDecLayer
 
 
@@ -31,33 +32,39 @@ class Decoder(nn.Module):
         self.lin_z_out = Linear(emb_size, vocab_size, bias=True)
         self.lin_g_out = Linear(2 * emb_size, len(SrtEdgeTypes))
 
-    def forward(self, data):
+    def forward(self, x, x_batch, tgt_y=None, tgt_edge_index=None, tgt_edge_type=None, tgt_y_batch=None):
         if self.training:
+            if \
+                    not torch.is_tensor(tgt_y) or not torch.is_tensor(tgt_edge_index) or \
+                    not torch.is_tensor(tgt_edge_type) or not torch.is_tensor(tgt_y_batch):
+                raise ModelParamsError('ground truth SLT graph missing while training')
             # create tgt nodes embeddings
-            data.out_x = self.embeds(data.tgt_x)
+            y = self.embeds(tgt_y)
             # sums token embeddings to one in case of multiple tokens per node
-            data.out_x = torch.sum(data.out_x, dim=1)
+            y = torch.sum(y, dim=1)
+            # rename to be consistent with evaluation time
+            y_edge_index = tgt_edge_index
+            y_edge_type = tgt_edge_type
+            y_batch = tgt_y_batch
             # gcn layers
-            data.out_x = self.gcn1(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type, data.x_batch, data.tgt_x_batch)
-            data.out_x = self.gcn2(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type, data.x_batch, data.tgt_x_batch)
-            data.out_x = self.gcn3(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type, data.x_batch, data.tgt_x_batch)
+            y = self.gcn1(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
+            y = self.gcn2(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
+            y = self.gcn3(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
         else:
-            data.out_x, data.tgt_edge_index, data.tgt_edge_type = self.generate_output_graph(data)
+            y, y_edge_index, y_edge_type, y_batch = self.generate_output_graph(x, x_batch)
 
         # predictions for nodes from output graph
-        out_node_predictions = self.lin_z_out(data.out_x)
-        out_node_predictions = F.log_softmax(out_node_predictions, dim=1)
-        data.out_x_pred = out_node_predictions
+        y_pred = self.lin_z_out(y)
+        y_pred = F.log_softmax(y_pred, dim=1)
+        # build output graph edge features by concatenation corresponding nodes features
+        y_edge_features = y[y_edge_index].permute(1, 0, 2)
+        y_edge_features = y_edge_features.flatten(1)
         # predictions for edges from output graph
-        out_edge_features = data.out_x[data.tgt_edge_index].permute(1, 0, 2)
-        out_edge_features = out_edge_features.flatten(1)
-        out_edge_predictions = self.lin_g_out(out_edge_features)
-        out_edge_predictions = F.log_softmax(out_edge_predictions, dim=1)
-        data.out_edge_pred = out_edge_predictions
-        return data
+        y_edge_pred = self.lin_g_out(y_edge_features)
+        y_edge_pred = F.log_softmax(y_edge_pred, dim=1)
+        return y, y_edge_index, y_edge_type, y_pred, y_edge_pred
 
-    def generate_output_graph(self, data):
-        x = data.x
+    def generate_output_graph(self, x, x_batch):
         y = torch.zeros(0, dtype=torch.float).to(self.device)
         y_eindex = torch.zeros(0, dtype=torch.long).to(self.device)
         y_etype = torch.zeros(0, dtype=torch.long).to(self.device)
@@ -114,7 +121,7 @@ class Decoder(nn.Module):
 
         if predicted_token == self.end_node_token_id or y.size(0) == self.max_output_graph_size:
             # generated node is leaf or max number of nodes reach --> end traversal
-            return y, y_eindex, y_etype, True, None
+            return y, y_eindex, y_etype, True, None, None
         else:
             # generated node is not leaf --> proceed with subtree/child-nodes generation
             last_child_id = None
@@ -129,4 +136,4 @@ class Decoder(nn.Module):
                 if is_leaf:
                     # if leaf end node generated --> stop with this subtree and return to parent
                     break
-            return y, y_eindex, y_etype, False, y_new_id
+            return y, y_eindex, y_etype, False, y_new_id, None

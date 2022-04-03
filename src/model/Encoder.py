@@ -26,11 +26,8 @@ class Encoder(nn.Module):
         self.gat2 = GATLayer(h_size, h_size)
         self.gat3 = GATLayer(h_size, out_size)
 
-    def forward(self, data):
-        x, edge_index, edge_attr = data.x, data.edge_index, data.edge_attr
-
+    def forward(self, x, edge_index, edge_attr):
         # extract component level visual features
-
         # OPTION 1 : resnet
         # x = self.resnet(x)
 
@@ -49,7 +46,4 @@ class Encoder(nn.Module):
         # remove self loops added during GAT layers processing
         edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
 
-        data.x = x
-        data.edge_index = edge_index
-        data.edge_attr = edge_attr
-        return data
+        return x, edge_index, edge_attr

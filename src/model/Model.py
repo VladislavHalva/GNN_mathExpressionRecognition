@@ -15,7 +15,18 @@ class Model(nn.Module):
         self.decoder = Decoder(device, enc_out_size, dec_h_size, emb_size, vocab_size, end_node_token_id)
 
     def forward(self, data):
-        data = self.encoder(data)
-        data = self.decoder(data)
+        x, edge_index, edge_attr = self.encoder(data.x, data.edge_index, data.edge_attr)
+        y, y_edge_index, y_edge_type, y_pred, y_edge_pred = self.decoder(x, data.x_batch, data.tgt_y, data.tgt_edge_index, data.tgt_edge_type, data.tgt_y_batch)
+
+        data.x = x
+        data.edge_index = edge_index
+        data.edge_attr = edge_attr
+
+        data.y = y
+        data.y_edge_index = y_edge_index
+        data.y_edge_type = y_edge_type
+        data.y_pred = y_pred
+        data.y_edge_pred = y_edge_pred
+
         return data
 

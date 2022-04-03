@@ -52,6 +52,16 @@ class GCNDecLayer(MessagePassing):
         zeros(self.bias)
 
     def forward(self, f, x, edge_index, edge_type, f_batch, x_batch, restrict_update_to=None):
+        """
+        :param f: source graph features
+        :param x: output graph features
+        :param edge_index: edge index of output graph
+        :param edge_type: edge types of output graph (gg, pc, bb, cc)
+        :param f_batch: vector indicating to which batch element belong the individual source graph nodes
+        :param x_batch: vector indicating to which batch element belong the individual output graph nodes
+        :param restrict_update_to: vector of output graph node indices - if set, only those will be updated
+        :return: new output graph features
+        """
         # linear transformation of nodes given by different possible edge types
         gg_h = self.lin_gg(x)
         pc_h = self.lin_pc(x)
