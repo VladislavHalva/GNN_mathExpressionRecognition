@@ -26,7 +26,7 @@ if __name__ == '__main__':
 
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 1000
+    epochs = 1
     batch_size = 2
     components_shape = (32, 32)
     edge_features = 19
@@ -38,10 +38,11 @@ if __name__ == '__main__':
 
     load_model = False
     load_model_path = "checkpoints/"
-    load_model_name = "MER_3L_19_256_256_simple_22-03-24_20-57-21_final.pth"
+    load_model_name = "MER_3L_19_256_400_256_simple_22-03-24_20-57-21_final.pth"
 
-    train = False
-    eval = True
+    train = True
+    train_sufficient_loss = 0.05
+    eval = False
     save_run = False
     print_train_info = False
 
@@ -99,6 +100,8 @@ if __name__ == '__main__':
                 optimizer.zero_grad()
                 out = model(data_batch)
 
+                exit()
+
                 # calculate loss as cross-entropy on output graph node predictions
                 loss_out_node = F.nll_loss(out.out_x_pred, out.tgt_x.squeeze(1))
 
@@ -129,10 +132,10 @@ if __name__ == '__main__':
                 writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
             if print_train_info:
                 print(epoch_loss / len(trainset))
-            if save_run:
+            if save_run and False:
                 torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
-            if epoch_loss / len(trainset) < 0.3:
+            if epoch_loss / len(trainset) < train_sufficient_loss:
                 print("LOSS LOW ENOUGH")
                 break
 
@@ -150,11 +153,11 @@ if __name__ == '__main__':
                 break
 
                 latex = SltParser.slt_to_latex_predictions(tokenizer, out.out_x_pred, out.out_edge_pred, out.tgt_edge_index, out.tgt_edge_type)
-                # print('GT: ' + tokenizer.decode(out.gt.tolist()))
-                # print('PR: ' + latex)
-                # print('nodes count: ' + str(out.out_x_pred.shape[0]))
-                # print('edges count: ' + str(out.out_edge_pred.shape[0]))
-                # print("\n")
+                print('GT: ' + tokenizer.decode(out.gt.tolist()))
+                print('PR: ' + latex)
+                print('nodes count: ' + str(out.out_x_pred.shape[0]))
+                print('edges count: ' + str(out.out_edge_pred.shape[0]))
+                print("\n")
 
                 # pc_edge_mask = (out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).to(torch.long).unsqueeze(1)
                 # pc_edge_index = out.tgt_edge_index.t() * pc_edge_mask

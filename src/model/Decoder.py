@@ -38,9 +38,9 @@ class Decoder(nn.Module):
             # sums token embeddings to one in case of multiple tokens per node
             data.out_x = torch.sum(data.out_x, dim=1)
             # gcn layers
-            data.out_x = self.gcn1(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
-            data.out_x = self.gcn2(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
-            data.out_x = self.gcn3(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type)
+            data.out_x = self.gcn1(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type, data.x_batch, data.tgt_x_batch)
+            data.out_x = self.gcn2(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type, data.x_batch, data.tgt_x_batch)
+            data.out_x = self.gcn3(data.x, data.out_x, data.tgt_edge_index, data.tgt_edge_type, data.x_batch, data.tgt_x_batch)
         else:
             data.out_x, data.tgt_edge_index, data.tgt_edge_type = self.generate_output_graph(data)
 

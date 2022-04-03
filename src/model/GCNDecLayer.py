@@ -51,7 +51,7 @@ class GCNDecLayer(MessagePassing):
         self.lin_z.reset_parameters()
         zeros(self.bias)
 
-    def forward(self, f, x, edge_index, edge_type, restrict_update_to=None):
+    def forward(self, f, x, edge_index, edge_type, f_batch, x_batch, restrict_update_to=None):
         # linear transformation of nodes given by different possible edge types
         gg_h = self.lin_gg(x)
         pc_h = self.lin_pc(x)
@@ -70,6 +70,7 @@ class GCNDecLayer(MessagePassing):
             gg_h=gg_h, pc_h=pc_h, bb_h=bb_h, cc_h=cc_h,
             gg_edges_mask=gg_edges_mask, pc_edges_mask=pc_edges_mask,
             bb_edges_mask=bb_edges_mask, cc_edges_mask=cc_edges_mask,
+            f_batch=f_batch, x_batch=x_batch,
             size=None)
         out += self.bias
 
@@ -119,7 +120,7 @@ class GCNDecLayer(MessagePassing):
         packed_msg_j = packed_msg_j.permute(1, 0, 2)
         return packed_msg_j
 
-    def update(self, packed_msg, f):
+    def update(self, packed_msg, f, f_batch, x_batch):
         # linear tr. of source graph for attention and context vector
         f_att = self.lin_f_att(f)
         f_context = self.lin_f_context(f)
@@ -138,6 +139,10 @@ class GCNDecLayer(MessagePassing):
         # compute context vector
         q = self.lin_h(h) + x_bro + x_pa
         alpha = q @ f_att.t().contiguous()
+        # mask batch - values belonging to the same input
+        alpha_batch_mask = (x_batch.unsqueeze(1) - f_batch.unsqueeze(0) == 0).long()
+        alpha = alpha * alpha_batch_mask
+        # softmax along source graph feature coefficients - irrelevant ones are zeros (masked)
         alpha = F.softmax(alpha, dim=0)
         c = alpha @ f_context
         # combine context vector and feature vector acquired from graph convolution
