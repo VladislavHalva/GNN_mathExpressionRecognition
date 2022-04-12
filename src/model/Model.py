@@ -16,7 +16,7 @@ class Model(nn.Module):
 
     def forward(self, data):
         x, edge_index, edge_attr = self.encoder(data.x, data.edge_index, data.edge_attr)
-        y, y_edge_index, y_edge_type, y_pred, y_edge_pred = self.decoder(x, data.x_batch, data.tgt_y, data.tgt_edge_index, data.tgt_edge_type, data.tgt_y_batch)
+        y, y_edge_index, y_edge_type, y_score, y_edge_rel_score, embeds = self.decoder(x, data.x_batch, data.tgt_y, data.tgt_edge_index, data.tgt_edge_type, data.tgt_y_batch)
 
         data.x = x
         data.edge_index = edge_index
@@ -25,8 +25,9 @@ class Model(nn.Module):
         data.y = y
         data.y_edge_index = y_edge_index
         data.y_edge_type = y_edge_type
-        data.y_pred = y_pred
-        data.y_edge_pred = y_edge_pred
+        data.y_score = y_score
+        data.y_edge_rel_score = y_edge_rel_score
+        data.embeds = embeds
 
         return data
 

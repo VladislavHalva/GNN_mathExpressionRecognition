@@ -5,6 +5,7 @@ import timeit
 from itertools import chain
 
 import networkx as nx
+import numpy as np
 import torch
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
@@ -28,49 +29,51 @@ if __name__ == '__main__':
 
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 100
-    batch_size = 4
+    epochs = 200
+    batch_size = 1
     components_shape = (32, 32)
     edge_features = 19
     enc_in_size = 256
     enc_h_size = 400
-    enc_out_size = 400
+    enc_out_size = 256
     dec_h_size = 256
     emb_size = 256
 
-    load_model = False
+    load_model = True
     load_model_path = "checkpoints/"
-    load_model_name = "MER_3L_19_256_400_256_simple_22-04-03_19-49-43_final.pth"
+    load_model_name = "MER_3L_19_256_256_256_simple_22-04-06_00-08-36_final.pth"
 
-    train = True
-    train_sufficient_loss = 0.1
-    evaluate = False
-    save_run = False
+    train = False
+    train_sufficient_loss = 0.05
+    evaluate = True
+    save_run = True
     print_train_info = True
 
     # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
     # for training
-    train_images_root = 'assets/crohme/train/img/'
-    train_inkmls_root = 'assets/crohme/train/inkml/'
+    train_images_root = 'assets/crohme/simple/img/'
+    train_inkmls_root = 'assets/crohme/simple/inkml/'
     # for test
     test_images_root = 'assets/crohme/simple/img/'
     test_inkmls_root = 'assets/crohme/simple/inkml/'
 
     # folder where data item representations will be stored
     tmp_path = 'temp'
-    tmp_path = None
 
     if load_vocab:
         tokenizer = LatexVocab.load_tokenizer('assets/tokenizer.json')
     else:
         LatexVocab.generate_formulas_file_from_inkmls(dist_inkmls_root, 'assets/vocab.txt')
+        LatexVocab.generate_formulas_file_from_inkmls_mathml(dist_inkmls_root, 'assets/vocab.txt')
         tokenizer = LatexVocab.create_tokenizer('assets/vocab.txt', min_freq=1)
         LatexVocab.save_tokenizer(tokenizer, 'assets/tokenizer.json')
 
     vocab = tokenizer.get_vocab()
     vocab_size = tokenizer.get_vocab_size()
     end_node_token_id = tokenizer.encode("[EOS]", add_special_tokens=False).ids[0]
+
+
 
     model = Model(
         device,
@@ -83,14 +86,15 @@ if __name__ == '__main__':
     model.to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=0.001)
+    loss_f = nn.CrossEntropyLoss()
 
     now = datetime.datetime.now()
-    model_name = 'MER_3L_'+'19_256_400_256_train'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
+    model_name = 'MER_3L_'+'19_256_256_256_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
 
     if train:
         trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape, tmp_path)
 
-        trainloader = DataLoader(trainset, batch_size, False, follow_batch=['x', 'tgt_y'])
+        trainloader = DataLoader(trainset, batch_size, True, follow_batch=['x', 'tgt_y'])
         if save_run:
             writer = SummaryWriter('runs/' + model_name)
 
@@ -108,15 +112,19 @@ if __name__ == '__main__':
                 out = model(data_batch)
 
                 # calculate loss as cross-entropy on output graph node predictions
-                loss_out_node = F.nll_loss(out.y_pred, out.tgt_y.squeeze(1))
+                loss_out_node = loss_f(out.y_score, out.tgt_y.squeeze(1))
+
+                # calculate loss as cross-entropy on decoder embeddings
+                # loss_embeds = F.nll_loss(out.embeds, out.tgt_y.squeeze(1))
 
                 # calculate loss as cross-entropy on output graph SRT edge type predictions
                 tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
                 tgt_pc_edge_relation = out.tgt_edge_relation[tgt_edge_pc_indices]
-                out_pc_edge_relation = out.y_edge_pred[tgt_edge_pc_indices]
-                loss_out_edge = F.nll_loss(out_pc_edge_relation, tgt_pc_edge_relation)
+                out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
+                loss_out_edge = loss_f(out_pc_edge_relation, tgt_pc_edge_relation)
 
                 loss = loss_out_node + loss_out_edge
+
                 loss.backward()
 
                 epoch_loss += loss.item()
@@ -133,16 +141,16 @@ if __name__ == '__main__':
 
                 optimizer.step()
 
-            if save_run:
-                writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
             if print_train_info:
                 print(epoch_loss / len(trainset))
-            if save_run and False:
-                torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
+            if save_run:
+                writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
+                # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
             if epoch_loss / len(trainset) < train_sufficient_loss:
-                print("LOSS LOW ENOUGH")
-                break
+                pass
+                # print("LOSS LOW ENOUGH")
+                # break
 
         if save_run:
             torch.save(model.state_dict(), 'checkpoints/' + model_name + '_final' + '.pth')
@@ -151,19 +159,25 @@ if __name__ == '__main__':
         testset = CrohmeDataset(test_images_root, test_inkmls_root, tokenizer, components_shape)
         testloader = DataLoader(testset, 1, False, follow_batch=['x', 'tgt_y'])
 
-        model.train()
+        model.eval()
         with torch.no_grad():
+
             for i, data_batch in enumerate(testloader):
                 data_batch = data_batch.to(device)
-
                 out = model(data_batch)
 
-                latex = SltParser.slt_to_latex_predictions(tokenizer, out.y_pred, out.y_edge_pred, out.y_edge_index, out.y_edge_type)
+                y_pred = F.softmax(out.y_score, dim=1)
+                y_pred = torch.argmax(y_pred, dim=1)
+                y_edge_rel_pred = F.softmax(out.y_edge_rel_score, dim=1)
+                y_edge_rel_pred = torch.argmax(y_edge_rel_pred, dim=1)
+
+                latex = SltParser.slt_to_latex_predictions(tokenizer, y_pred, out.tgt_edge_relation, out.y_edge_index, out.y_edge_type)
+
+                # print(y_pred)
+                # print('PR: ' + tokenizer.decode(y_pred.tolist()))
+                # print('GT: ' + tokenizer.decode(out.tgt_y.squeeze(1).tolist()))
                 print('GT: ' + tokenizer.decode(out.gt.tolist()))
                 print('PR: ' + latex)
-                print('nodes count: ' + str(out.y_pred.shape[0]))
-                print('edges count: ' + str(out.y_edge_pred.shape[0]))
+                # print('nodes count: ' + str(out.y_score.shape[0]))
+                # print('edges count: ' + str(out.y_edge_rel_score.shape[0]))
                 print("\n")
-
-                break
-

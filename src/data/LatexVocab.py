@@ -12,6 +12,10 @@ from tokenizers.trainers import BpeTrainer, WordPieceTrainer
 
 from pylatexenc.latexwalker import LatexWalker, LatexMathNode
 
+from src.data.LTokenizer import LTokenizer
+from src.definitions.MathMLAnnotationType import MathMLAnnotationType
+from src.definitions.exceptions.ItemLoadError import ItemLoadError
+
 
 class LatexVocab:
     @staticmethod
@@ -46,6 +50,76 @@ class LatexVocab:
             fd.write('\n'.join(formulas))
 
         logging.info('Formulas written to ' + tgt_file)
+
+    @staticmethod
+    def mathml_symbols_dfs(xml_ns, mathml_ns, root):
+        if root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mo', mathml_ns + 'mtext',
+                        mathml_ns + 'mspace', mathml_ns + 'ms']:
+            return [root.text]
+        else:
+            children_symbols = []
+            for child in root:
+                children_symbols.extend(LatexVocab.mathml_symbols_dfs(xml_ns, mathml_ns, child))
+            return children_symbols
+
+    @staticmethod
+    def generate_formulas_file_from_inkmls_mathml(inkmls_root, tgt_file):
+        if not os.path.exists(inkmls_root):
+            raise FileNotFoundError('Inkmls directory not found')
+
+        xml_namespace = '{http://www.w3.org/XML/1998/namespace}'
+        doc_namespace = '{http://www.w3.org/2003/InkML}'
+        mathml_namespace = '{http://www.w3.org/1998/Math/MathML}'
+
+        symbols = []
+        for subdir, _, files in tqdm(os.walk(inkmls_root)):
+            for file in files:
+                file_ext = file.split('.')[-1]
+                if file_ext == 'inkml':
+                    filepath = os.path.join(subdir, file)
+                    tree = ET.parse(filepath)
+                    root = tree.getroot()
+
+                    # get mathml annotation section and determine type
+                    annotation_mathml_content = root.find(
+                        doc_namespace + 'annotationXML[@type="truth"][@encoding="Content-MathML"]')
+                    annotation_mathml_presentation = root.find(
+                        doc_namespace + 'annotationXML[@type="truth"][@encoding="Presentation-MathML"]')
+                    if annotation_mathml_content:
+                        annotation_type = MathMLAnnotationType.CONTENT
+                        annotation_mathml = annotation_mathml_content
+                    elif annotation_mathml_presentation:
+                        annotation_type = MathMLAnnotationType.PRESENTATION
+                        annotation_mathml = annotation_mathml_presentation
+                    else:
+                        continue
+
+                    # find math definition root
+                    if annotation_type == MathMLAnnotationType.CONTENT:
+                        math_root = annotation_mathml.find(mathml_namespace + 'math')
+                    else:
+                        math_root = annotation_mathml.find(doc_namespace + 'math')
+                    if not math_root:
+                        continue
+
+                    try:
+                        # different namespaces in various types of annotation
+                        if annotation_type == MathMLAnnotationType.CONTENT:
+                            file_symbols = LatexVocab.mathml_symbols_dfs(xml_namespace, mathml_namespace, math_root)
+                        else:
+                            file_symbols = LatexVocab.mathml_symbols_dfs(xml_namespace, doc_namespace, math_root)
+                        symbols.extend(file_symbols)
+                    except AttributeError as e:
+                        continue
+
+        symbols = set(symbols)
+        symbols = ' '.join(symbols)
+
+        with open(tgt_file, 'a') as fd:
+            fd.write("\n")
+            fd.write(symbols)
+
+        logging.info('Symbols written to ' + tgt_file)
 
     @staticmethod
     def split_to_tokens(latex_formula):
@@ -97,3 +171,22 @@ class LatexVocab:
             raise FileNotFoundError('Tokenizer file not found')
 
         return Tokenizer.from_file(tokenizer_file)
+
+    # @staticmethod
+    # def create_tokenizer(formulas_file, min_freq=1):
+    #     words = []
+    #     with open(formulas_file, 'r') as file:
+    #         for line in file:
+    #             line_words = line.split(' ')
+    #             line_words = [word.strip() for word in line_words]
+    #             words.extend(line_words)
+    #     words = list(set(words))
+    #     words.extend(['[PAD]', '[EOS]', '[UNK]'])
+    #     return LTokenizer(words)
+    #
+    # @staticmethod
+    # def load_tokenizer(tokenizer_file):
+    #     if not os.path.exists(tokenizer_file):
+    #         raise FileNotFoundError('Tokenizer file not found')
+    #
+    #     return LTokenizer.from_file(tokenizer_file)

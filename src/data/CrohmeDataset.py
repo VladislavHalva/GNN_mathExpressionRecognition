@@ -101,7 +101,7 @@ class CrohmeDataset(Dataset):
         # extract components and build LoS graph
         components, components_mask = self.extract_components_from_image(image_path)
         edges, edge_features = self.get_line_of_sight_edges(components, components_mask)
-        # self.draw_los(image_path, components, edges)
+        self.draw_los(image_path, components, edges)
 
         # BUILD PyG GRAPH DATA ELEMENT
         # input components images
@@ -571,10 +571,9 @@ class CrohmeDataset(Dataset):
                 symbols[i]['symbol'] = "\\" + symbols[i]['symbol']
         return symbols
 
-
     def get_slt(self, inkml_path, latex):
         symbols, relations = self.parse_mathml(inkml_path)
-        symbols = self.append_special_symbols_with_bslash(symbols)
+        # symbols = self.append_special_symbols_with_bslash(symbols)
         # tokenize symbols
         # TODO this gives only the first token in case of multiple per node
         x = [[self.tokenizer.encode(s['symbol'], add_special_tokens=False).ids[0]] for s in symbols]
@@ -602,12 +601,12 @@ class CrohmeDataset(Dataset):
             edge_type.append(SltEdgeTypes.PARENT_CHILD)
             edge_relation.append(relation['type'])
 
-        # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation)
-
         # append graph with edges to end child nodes
         edge_index.extend(end_edge_index)
         edge_type.extend(SltEdgeTypes.PARENT_CHILD for _ in end_edge_index)
         edge_relation.extend(SrtEdgeTypes.TO_ENDNODE for _ in end_edge_index)
+
+        # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation, False)
 
         # get grandparent and left brother edges and self loops
         gp_edges = self.get_gp_edges(edge_index)
@@ -625,7 +624,7 @@ class CrohmeDataset(Dataset):
         edge_type.extend(SltEdgeTypes.CURRENT_CURRENT for _ in self_edges)
         edge_relation.extend(SrtEdgeTypes.UNDEFINED for _ in self_edges)
 
-        # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation)
+        self.draw_slt(symbols, x, edge_index, edge_type, edge_relation)
 
         return x, edge_index, edge_type, edge_relation
 

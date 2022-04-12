@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 from torch.nn import Linear
 from torch_geometric.utils import remove_self_loops
@@ -15,7 +16,7 @@ class Encoder(nn.Module):
         # self.resnet = Resnet(1, in_size, components_shape)
 
         # OPTION 2 - use pretrained vgg for feature extraction
-        self.vgg = models.vgg16(pretrained=True, progress=True, num_classes=1000)
+        self.vgg = models.vgg16(pretrained=True)
         # modify last layer to fit the desired input feature size for GAT
         self.vgg.classifier[6] = nn.Linear(4096, in_size)
 
@@ -45,5 +46,4 @@ class Encoder(nn.Module):
 
         # remove self loops added during GAT layers processing
         edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
-
         return x, edge_index, edge_attr

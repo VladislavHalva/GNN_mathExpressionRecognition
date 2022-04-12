@@ -1,61 +1,74 @@
+import numpy as np
 import torch
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
+from src.definitions.exceptions.SltStructureError import SltStructureError
 
 
 class SltParser:
     @staticmethod
-    def get_root(edge_index):
-        sources = list(set([edge[0] for edge in edge_index]))
-        targets = list(set([edge[1] for edge in edge_index]))
-        keep = [True for _ in range(len(sources))]
-        for i, source in enumerate(sources):
-            if source in targets:
-                keep[i] = False
-        roots = [source for i, source in enumerate(sources) if keep[i]]
+    def get_root(tokens, pc_edge_index):
+        tokens_ids = np.array(list(range(len(tokens))))
+        targets = np.array(list(set([edge[1] for edge in pc_edge_index])))
+        tokens_ids = np.delete(tokens_ids, targets)
 
-        if len(roots) == 0 or len(roots) > 1:
+        if tokens_ids.shape[0] == 0 or tokens_ids.shape[0] > 1:
             return None
-        return roots[0]
+        return tokens_ids[0]
 
     @staticmethod
-    def remove_selfloops(edge_index, edge_rel):
-        keep = [True for _ in range(len(edge_index))]
-        for i, edge in enumerate(edge_index):
-            if edge[0] == edge[1]:
-                keep[i] = False
+    def get_children(root_id, pc_edge_index, bb_edge_index):
+        children = [{'id': edge[1], 'e_id': idx} for idx, edge in enumerate(pc_edge_index) if edge[0] == root_id]
+        if len(children) <= 1:
+            return children
+        else:
+            children_ids = [ch['id'] for ch in children]
+            bb_src_node_ids = bb_edge_index[:, 0]
+            bb_tgt_node_ids = bb_edge_index[:, 1]
 
-        edge_index = [edge for i, edge in enumerate(edge_index) if keep[i]]
-        edge_rel = [r for i, r in enumerate(edge_rel) if keep[i]]
-        return edge_index, edge_rel
+            bb_src_node_ids = [node for node in bb_src_node_ids if node in children_ids]
+            bb_tgt_node_ids = [node for node in bb_tgt_node_ids if node in children_ids]
+
+            first_node = [node_id for node_id in bb_src_node_ids if node_id not in bb_tgt_node_ids]
+            children_order = first_node
+            for _ in range(len(children_ids) - 1):
+                current_node = children_order[-1]
+                next_child = [edge[1] for edge in bb_edge_index if edge[0] == current_node]
+                if len(next_child) == 0:
+                    raise SltStructureError()
+                else:
+                    children_order.append(next_child[0])
+
+            children_ordered = []
+            for child_id in children_order:
+                children_ordered.append(next(child for child in children if child['id'] == child_id))
+
+        return children_ordered
 
     @staticmethod
-    def get_children(root_id, edge_index):
-        return [{'id': edge[1], 'e_id': idx} for idx, edge in enumerate(edge_index) if edge[0] == root_id]
-
-    @staticmethod
-    def parse_slt_subtree(root_id, x, edge_index, edge_rel):
+    def parse_slt_subtree(root_id, x, pc_edge_index, bb_edge_index, pc_edge_rel):
         output = []
         root_symbol = x[root_id]
         # identify child nodes
-        children = SltParser.get_children(root_id, edge_index)
+        children = SltParser.get_children(root_id, pc_edge_index, bb_edge_index)
         # recursion - process child node subtrees
-        children_subtrees = [SltParser.parse_slt_subtree(child['id'], x, edge_index, edge_rel) for child in children]
+        children_subtrees = [SltParser.parse_slt_subtree(child['id'], x, pc_edge_index, bb_edge_index, pc_edge_rel) for child in children]
 
         # separate subtrees based on connection type
         above = [subtree for i, subtree in enumerate(children_subtrees) if
-                 edge_rel[children[i]['e_id']] == SrtEdgeTypes.ABOVE]
+                 pc_edge_rel[children[i]['e_id']] == SrtEdgeTypes.ABOVE]
         below = [subtree for i, subtree in enumerate(children_subtrees) if
-                 edge_rel[children[i]['e_id']] == SrtEdgeTypes.BELOW]
+                 pc_edge_rel[children[i]['e_id']] == SrtEdgeTypes.BELOW]
         right = [subtree for i, subtree in enumerate(children_subtrees) if
-                 edge_rel[children[i]['e_id']] == SrtEdgeTypes.RIGHT]
+                 pc_edge_rel[children[i]['e_id']] == SrtEdgeTypes.RIGHT or
+                 pc_edge_rel[children[i]['e_id']] == SrtEdgeTypes.TO_ENDNODE]
         inside = [subtree for i, subtree in enumerate(children_subtrees) if
-                  edge_rel[children[i]['e_id']] == SrtEdgeTypes.INSIDE]
+                  pc_edge_rel[children[i]['e_id']] == SrtEdgeTypes.INSIDE]
         superscript = [subtree for i, subtree in enumerate(children_subtrees) if
-                       edge_rel[children[i]['e_id']] == SrtEdgeTypes.SUPERSCRIPT]
+                       pc_edge_rel[children[i]['e_id']] == SrtEdgeTypes.SUPERSCRIPT]
         subscript = [subtree for i, subtree in enumerate(children_subtrees) if
-                     edge_rel[children[i]['e_id']] == SrtEdgeTypes.SUBSCRIPT]
+                     pc_edge_rel[children[i]['e_id']] == SrtEdgeTypes.SUBSCRIPT]
 
         # append root symbol
         output.append(root_symbol)
@@ -102,51 +115,82 @@ class SltParser:
         return output
 
     @staticmethod
-    def slt_to_latex_predictions(tokenizer, x_pred, edge_rel_pred, edge_index, edge_type):
+    def remove_nodes(x, x_remove_ids, edge_index1, edge_index2, edge_relations1):
+        x = np.delete(x, x_remove_ids)
+        edge_index1_r_ids = []
+        edge_index2_r_ids = []
+        for i, edge in enumerate(edge_index1):
+            if edge[0] in x_remove_ids or edge[1] in x_remove_ids:
+                edge_index1_r_ids.append(i)
+        for i, edge in enumerate(edge_index2):
+            if edge[0] in x_remove_ids or edge[1] in x_remove_ids:
+                edge_index2_r_ids.append(i)
+        edge_index1 = np.delete(edge_index1, edge_index1_r_ids, axis=0)
+        edge_index2 = np.delete(edge_index2, edge_index2_r_ids, axis=0)
+        edge_relations1 = np.delete(edge_relations1, edge_index1_r_ids)
+        return x, edge_index1, edge_index2, edge_relations1
+
+    @staticmethod
+    def slt_to_latex_predictions(tokenizer, x, edge_relations, edge_index, edge_type):
         # get symbols
-        node_preds = torch.exp(x_pred)
-        _, max_id = node_preds.max(dim=1)
-        token_ids = max_id.tolist()
-        tokens = [tokenizer.decode([token_id]) for token_id in token_ids]
-
-        # get node relations
-        edge_preds = torch.exp(edge_rel_pred)
-        _, max_id = edge_preds.max(dim=1)
-        edge_relations = max_id
-
+        x = x.numpy()
+        tokens = [tokenizer.decode([token_id]) for token_id in x]
         return SltParser.slt_to_latex(tokenizer, tokens, edge_relations, edge_index, edge_type)
 
     @staticmethod
     def slt_to_latex(tokenizer, tokens, edge_relations, edge_index, edge_type):
         # keep only parent-child edges
         edge_pc_indices = ((edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
-        edge_index = edge_index.t()[edge_pc_indices]
-        edge_relations = edge_relations[edge_pc_indices]
+        edge_bb_indices = ((edge_type == SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER).nonzero(as_tuple=True)[0])
+        pc_edge_index = edge_index.t()[edge_pc_indices]
+        pc_edge_relations = edge_relations[edge_pc_indices]
+        # and save brother edges for ordering purposes
+        bb_edge_index = edge_index.t()[edge_bb_indices]
 
-        # remove "to-endnode" edges
-        edge_no_endnode = ((edge_relations != SrtEdgeTypes.TO_ENDNODE).nonzero(as_tuple=True)[0])
-        edge_index = edge_index[edge_no_endnode]
-        edge_relations = edge_relations[edge_no_endnode]
+        # TODO might remove node that is not endnode, if edge type incorrect
+        if False:
+            # remove "to-endnode" edges
+            pc_edge_no_endnode = ((pc_edge_relations != SrtEdgeTypes.TO_ENDNODE).nonzero(as_tuple=True)[0])
+            pc_edge_index = pc_edge_index[pc_edge_no_endnode]
+            pc_edge_relations = pc_edge_relations[pc_edge_no_endnode]
 
-        edge_index = edge_index.tolist()
-        edge_relations = edge_relations.tolist()
+            pc_edge_index = pc_edge_index.numpy()
+            pc_edge_relations = pc_edge_relations.numpy()
+            bb_edge_index = bb_edge_index.numpy()
 
-        # remove self loops
-        # edge_index, edge_relations = SltParser.remove_selfloops(edge_index, edge_relations)
+            # remove standalone nodes - end leaf nodes
+            if pc_edge_index.shape[0] > 0:
+                # remove only if there are any parent-child edges
+                # otherwise the whole graph is single node and wanna keep it
+                src_nodes_ids = [edge[0] for edge in pc_edge_index]
+                tgt_nodes_ids = [edge[1] for edge in pc_edge_index]
+                src_nodes_ids.extend(tgt_nodes_ids)
+                connected_node_ids = src_nodes_ids
+                connected_node_ids = list(set(connected_node_ids))
+                standalone_node_ids = [i for i, _ in enumerate(tokens) if i not in connected_node_ids]
+                tokens, pc_edge_index, bb_edge_index, pc_edge_relations = \
+                    SltParser.remove_nodes(tokens, standalone_node_ids, pc_edge_index, bb_edge_index, pc_edge_relations)
 
-        # remove standalone nodes - end leaf nodes
-        if len(edge_index) > 0:
-            max_src = max([edge[0] for edge in edge_index])
-            max_tgt = max([edge[1] for edge in edge_index])
-            max_id = max(max_src, max_tgt)
-            tokens = tokens[:(max_id + 1)]
+        pc_edge_index = pc_edge_index.numpy()
+        pc_edge_relations = pc_edge_relations.numpy()
+        bb_edge_index = bb_edge_index.numpy()
 
-        # print(tokens)
-        # print([[i, SrtEdgeTypes.to_string(rel)] for i,rel in enumerate(edge_relations)])
+        # remove end leaf nodes
+        end_node_ids = [i for i, token in enumerate(tokens) if not token]
+        tokens, pc_edge_index, bb_edge_index, pc_edge_relations = \
+            SltParser.remove_nodes(tokens, end_node_ids, pc_edge_index, bb_edge_index, pc_edge_relations)
 
-        root_id = SltParser.get_root(edge_index)
-        if root_id is None:
-            return ""
+        if pc_edge_index.shape[0] == 0:
+            if tokens.shape[0] == 0:
+                # if there is no node left, return empty string
+                return ""
+            else:
+                # if no edges, but single node --> the only node in graph is root
+                root_id = 0
+        else:
+            root_id = SltParser.get_root(tokens, pc_edge_index)
+            if root_id is None:
+                return ""
 
-        latex = SltParser.parse_slt_subtree(root_id, tokens, edge_index, edge_relations)
+        latex = SltParser.parse_slt_subtree(root_id, tokens, pc_edge_index, bb_edge_index, pc_edge_relations)
         return ' '.join(latex)

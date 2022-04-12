@@ -51,7 +51,7 @@ class GCNDecLayer(MessagePassing):
         self.lin_z.reset_parameters()
         zeros(self.bias)
 
-    def forward(self, f, x, edge_index, edge_type, f_batch, x_batch, restrict_update_to=None):
+    def forward(self, f, x, edge_index, edge_type, f_batch, x_batch):
         """
         :param f: source graph features
         :param x: output graph features
@@ -59,14 +59,17 @@ class GCNDecLayer(MessagePassing):
         :param edge_type: edge types of output graph (gg, pc, bb, cc)
         :param f_batch: vector indicating to which batch element belong the individual source graph nodes
         :param x_batch: vector indicating to which batch element belong the individual output graph nodes
-        :param restrict_update_to: vector of output graph node indices - if set, only those will be updated
         :return: new output graph features
         """
         # linear transformation of nodes given by different possible edge types
         gg_h = self.lin_gg(x)
         pc_h = self.lin_pc(x)
         bb_h = self.lin_bb(x)
-        cc_h = self.lin_cc(x)
+
+        if self.is_first:
+            cc_h = self.lin_cc(torch.zeros(x.size(), dtype=torch.float).to(self.device))
+        else:
+            cc_h = self.lin_cc(x)
 
         # differ edges based on their type - grandparent-grandchild, parent-child, brothers, self-loops
         gg_edges_mask = (edge_type == SltEdgeTypes.GRANDPARENT_GRANDCHILD).to(torch.long).unsqueeze(1)
@@ -84,19 +87,6 @@ class GCNDecLayer(MessagePassing):
             size=None)
         out += self.bias
 
-        if restrict_update_to:
-            # during eval time update features only for currently generated node
-            # mask new features that shall be preserved
-            update_mask = torch.zeros(x.size(0), dtype=torch.long).to(self.device)
-            update_mask[restrict_update_to] = 1
-            update_mask = update_mask.unsqueeze(1)
-            out = out * update_mask
-            # mask old features that shall be preserved
-            preserve_mask = torch.abs(update_mask - 1)
-            x = x * preserve_mask
-            # combine old and new
-            out = out + x
-
         return out
 
     def message(self, x_j, gg_h_j, pc_h_j, bb_h_j, cc_h_j, gg_edges_mask, pc_edges_mask, bb_edges_mask, cc_edges_mask):
@@ -104,11 +94,7 @@ class GCNDecLayer(MessagePassing):
         gg_h_j_masked = gg_h_j * gg_edges_mask
         pc_h_j_masked = pc_h_j * pc_edges_mask
         bb_h_j_masked = bb_h_j * bb_edges_mask
-        if self.is_first:
-            # if first layer - current node features set to zero - emulate eval time processing
-            cc_h_j_masked = torch.zeros(cc_h_j.size()).to(self.device)
-        else:
-            cc_h_j_masked = cc_h_j * cc_edges_mask
+        cc_h_j_masked = cc_h_j * cc_edges_mask
 
         # merge results for all edge types
         h_j = torch.sum(torch.stack([gg_h_j_masked, pc_h_j_masked, bb_h_j_masked, cc_h_j_masked]), dim=0)
@@ -130,7 +116,7 @@ class GCNDecLayer(MessagePassing):
         packed_msg_j = packed_msg_j.permute(1, 0, 2)
         return packed_msg_j
 
-    def update(self, packed_msg, f, f_batch, x_batch):
+    def update(self, packed_msg, f, f_batch, x_batch, x):
         # linear tr. of source graph for attention and context vector
         f_att = self.lin_f_att(f)
         f_context = self.lin_f_context(f)
@@ -146,6 +132,7 @@ class GCNDecLayer(MessagePassing):
         # GLU activation on h - gcn feature vector
         h_in_and_condition = torch.cat([h, h], dim=1)
         h = F.glu(h_in_and_condition, dim=1)
+        # h = F.leaky_relu(h, negative_slope=0.01)
         # compute context vector
         q = self.lin_h(h) + x_bro + x_pa
         alpha = q @ f_att.t().contiguous()
@@ -153,7 +140,7 @@ class GCNDecLayer(MessagePassing):
         alpha_batch_mask = (x_batch.unsqueeze(1) - f_batch.unsqueeze(0) == 0).long()
         alpha = alpha * alpha_batch_mask
         # softmax along source graph feature coefficients - irrelevant ones are zeros (masked)
-        alpha = F.softmax(alpha, dim=0)
+        alpha = F.softmax(alpha, dim=1)
         c = alpha @ f_context
         # combine context vector and feature vector acquired from graph convolution
         z = h + c

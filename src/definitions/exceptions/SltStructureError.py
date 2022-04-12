@@ -1,0 +1,2 @@
+class SltStructureError(Exception):
+    pass
