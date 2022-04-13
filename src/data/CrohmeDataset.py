@@ -64,6 +64,8 @@ class CrohmeDataset(Dataset):
             item = self.items[idx]
             image_path, inkml_path, file_name = item
 
+            print(image_path)
+
             if self.tmp_path:
                 tmp_file_path = os.path.join(self.tmp_path, file_name + '.tmp')
 
@@ -101,7 +103,7 @@ class CrohmeDataset(Dataset):
         # extract components and build LoS graph
         components, components_mask = self.extract_components_from_image(image_path)
         edges, edge_features = self.get_line_of_sight_edges(components, components_mask)
-        self.draw_los(image_path, components, edges)
+        # self.draw_los(image_path, components, edges)
 
         # BUILD PyG GRAPH DATA ELEMENT
         # input components images
@@ -624,7 +626,7 @@ class CrohmeDataset(Dataset):
         edge_type.extend(SltEdgeTypes.CURRENT_CURRENT for _ in self_edges)
         edge_relation.extend(SrtEdgeTypes.UNDEFINED for _ in self_edges)
 
-        self.draw_slt(symbols, x, edge_index, edge_type, edge_relation)
+        # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation)
 
         return x, edge_index, edge_type, edge_relation
 

@@ -27,7 +27,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
-    load_vocab = True
+    load_vocab = False
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     epochs = 200
     batch_size = 1
@@ -55,8 +55,8 @@ if __name__ == '__main__':
     train_images_root = 'assets/crohme/simple/img/'
     train_inkmls_root = 'assets/crohme/simple/inkml/'
     # for test
-    test_images_root = 'assets/crohme/simple/img/'
-    test_inkmls_root = 'assets/crohme/simple/inkml/'
+    test_images_root = 'assets/crohme/dev/img/'
+    test_inkmls_root = 'assets/crohme/dev/inkml/'
 
     # folder where data item representations will be stored
     tmp_path = 'temp'
@@ -64,16 +64,13 @@ if __name__ == '__main__':
     if load_vocab:
         tokenizer = LatexVocab.load_tokenizer('assets/tokenizer.json')
     else:
-        LatexVocab.generate_formulas_file_from_inkmls(dist_inkmls_root, 'assets/vocab.txt')
-        LatexVocab.generate_formulas_file_from_inkmls_mathml(dist_inkmls_root, 'assets/vocab.txt')
-        tokenizer = LatexVocab.create_tokenizer('assets/vocab.txt', min_freq=1)
+        LatexVocab.generate_formulas_file_from_inkmls(dist_inkmls_root, 'assets/vocab.txt', latex_gt=True, mathml_gt=True)
+        tokenizer = LatexVocab.create_tokenizer('assets/vocab.txt', min_freq=2)
         LatexVocab.save_tokenizer(tokenizer, 'assets/tokenizer.json')
 
     vocab = tokenizer.get_vocab()
     vocab_size = tokenizer.get_vocab_size()
     end_node_token_id = tokenizer.encode("[EOS]", add_special_tokens=False).ids[0]
-
-
 
     model = Model(
         device,
@@ -171,13 +168,14 @@ if __name__ == '__main__':
                 y_edge_rel_pred = F.softmax(out.y_edge_rel_score, dim=1)
                 y_edge_rel_pred = torch.argmax(y_edge_rel_pred, dim=1)
 
-                latex = SltParser.slt_to_latex_predictions(tokenizer, y_pred, out.tgt_edge_relation, out.y_edge_index, out.y_edge_type)
+                # latex = SltParser.slt_to_latex_predictions(tokenizer, y_pred, out.tgt_edge_relation, out.y_edge_index, out.y_edge_type)
+                # latex = SltParser.slt_to_latex_predictions(tokenizer, out.tgt_y.squeeze(1), out.tgt_edge_relation, out.tgt_edge_index, out.tgt_edge_type)
 
                 # print(y_pred)
-                # print('PR: ' + tokenizer.decode(y_pred.tolist()))
-                # print('GT: ' + tokenizer.decode(out.tgt_y.squeeze(1).tolist()))
-                print('GT: ' + tokenizer.decode(out.gt.tolist()))
-                print('PR: ' + latex)
+                print('GT: ' + tokenizer.decode(out.tgt_y.squeeze(1).tolist()))
+                print('PR: ' + tokenizer.decode(y_pred.tolist()))
+                # print('GT: ' + tokenizer.decode(out.gt.tolist()))
+                # print('PR: ' + latex)
                 # print('nodes count: ' + str(out.y_score.shape[0]))
                 # print('edges count: ' + str(out.y_edge_rel_score.shape[0]))
                 print("\n")

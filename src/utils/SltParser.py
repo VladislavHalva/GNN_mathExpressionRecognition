@@ -1,5 +1,8 @@
+import networkx as nx
 import numpy as np
 import torch
+from matplotlib import pyplot as plt
+from networkx.drawing.nx_pydot import graphviz_layout
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
@@ -147,33 +150,17 @@ class SltParser:
         # and save brother edges for ordering purposes
         bb_edge_index = edge_index.t()[edge_bb_indices]
 
-        # TODO might remove node that is not endnode, if edge type incorrect
-        if False:
-            # remove "to-endnode" edges
-            pc_edge_no_endnode = ((pc_edge_relations != SrtEdgeTypes.TO_ENDNODE).nonzero(as_tuple=True)[0])
-            pc_edge_index = pc_edge_index[pc_edge_no_endnode]
-            pc_edge_relations = pc_edge_relations[pc_edge_no_endnode]
-
-            pc_edge_index = pc_edge_index.numpy()
-            pc_edge_relations = pc_edge_relations.numpy()
-            bb_edge_index = bb_edge_index.numpy()
-
-            # remove standalone nodes - end leaf nodes
-            if pc_edge_index.shape[0] > 0:
-                # remove only if there are any parent-child edges
-                # otherwise the whole graph is single node and wanna keep it
-                src_nodes_ids = [edge[0] for edge in pc_edge_index]
-                tgt_nodes_ids = [edge[1] for edge in pc_edge_index]
-                src_nodes_ids.extend(tgt_nodes_ids)
-                connected_node_ids = src_nodes_ids
-                connected_node_ids = list(set(connected_node_ids))
-                standalone_node_ids = [i for i, _ in enumerate(tokens) if i not in connected_node_ids]
-                tokens, pc_edge_index, bb_edge_index, pc_edge_relations = \
-                    SltParser.remove_nodes(tokens, standalone_node_ids, pc_edge_index, bb_edge_index, pc_edge_relations)
-
         pc_edge_index = pc_edge_index.numpy()
         pc_edge_relations = pc_edge_relations.numpy()
         bb_edge_index = bb_edge_index.numpy()
+
+        g = nx.Graph()
+        for edge in pc_edge_index:
+            g.add_edge(edge[0], edge[1])
+
+        pos = graphviz_layout(g, prog="dot")
+        nx.draw(g, pos, with_labels=True)
+        plt.show()
 
         # remove end leaf nodes
         end_node_ids = [i for i, token in enumerate(tokens) if not token]
