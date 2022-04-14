@@ -23,6 +23,7 @@ from src.definitions.MathMLAnnotationType import MathMLAnnotationType
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ItemLoadError import ItemLoadError
+from src.utils.SltParser import SltParser
 
 
 class CrohmeDataset(Dataset):
@@ -64,7 +65,7 @@ class CrohmeDataset(Dataset):
             item = self.items[idx]
             image_path, inkml_path, file_name = item
 
-            print(image_path)
+            # print(image_path)
 
             if self.tmp_path:
                 tmp_file_path = os.path.join(self.tmp_path, file_name + '.tmp')
@@ -79,11 +80,11 @@ class CrohmeDataset(Dataset):
                 # get source graph - LoS
                 x, edge_index, edge_attr = self.get_src_item(image_path)
                 # get tgt graph - SLT, and LaTeX ground-truth
-                gt, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path)
+                gt, gt_ml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path)
                 # build dataset item
                 data = GPairData(
                     x=x, edge_index=edge_index, edge_attr=edge_attr,
-                    gt=gt, tgt_y=tgt_y, tgt_edge_index=tgt_edge_index,
+                    gt=gt, gt_ml=gt_ml, tgt_y=tgt_y, tgt_edge_index=tgt_edge_index,
                     tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
                 )
 
@@ -137,20 +138,24 @@ class CrohmeDataset(Dataset):
         # extract ground truth latex sentence from inkml
         gt_latex = self.get_latex_from_inkml(inkml_path)
         gt_latex = LatexVocab.split_to_tokens(gt_latex)
+        # gt_latex = gt_latex.replace(' ', '')
         gt_latex_tokens = self.tokenizer.encode(gt_latex)
         gt = torch.tensor(gt_latex_tokens.ids, dtype=torch.long)
 
         # build target symbol layout tree
-        tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_slt(inkml_path, gt_latex)
+        tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, gt_from_mathml = self.get_slt(inkml_path, gt_latex)
 
         tgt_y = torch.tensor(tgt_y, dtype=torch.long)
         tgt_edge_index = torch.tensor(tgt_edge_index, dtype=torch.long)
         tgt_edge_type = torch.tensor(tgt_edge_type, dtype=torch.long)
         tgt_edge_relation = torch.tensor(tgt_edge_relation, dtype=torch.long)
-
         tgt_edge_index = tgt_edge_index.t().contiguous()
 
-        return gt, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation
+        gt_from_mathml = " ".join(gt_from_mathml)
+        gt_from_mathml = self.tokenizer.encode(gt_from_mathml)
+        gt_from_mathml = torch.tensor(gt_from_mathml.ids, dtype=torch.long)
+
+        return gt, gt_from_mathml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation
 
     def extract_components_from_image(self, imagepath):
         img = cv.imread(imagepath, cv.IMREAD_GRAYSCALE)
@@ -344,14 +349,16 @@ class CrohmeDataset(Dataset):
 
     def mathml_dfs(self, xml_ns, mathml_ns, root):
         s, r = [], []
+        sequence = []
 
         if root.tag in [mathml_ns + 'math', mathml_ns + 'mrow']:
             # just connect all children to row (right relation)
             linearly_connect = []
             for child in root:
-                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s_a, r_a, sequence_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
                 s.extend(s_a)
                 r.extend(r_a)
+                sequence.extend(sequence_a)
                 linearly_connect.append(subtree_root_id)
             for src, tgt in zip(linearly_connect, linearly_connect[1:]):
                 r.append({
@@ -359,7 +366,7 @@ class CrohmeDataset(Dataset):
                     'tgt_id': tgt,
                     'type': SrtEdgeTypes.RIGHT
                 })
-            return s, r, linearly_connect[0]
+            return s, r, sequence, linearly_connect[0]
         elif root.tag == mathml_ns + 'msqrt':
             # append \sqrt symbol and connect its first child as inside
             # all children connect to row - linear (just like mrow)
@@ -368,11 +375,13 @@ class CrohmeDataset(Dataset):
                 'id': sqrt_symbol_id,
                 'symbol': r"\sqrt"
             })
+            sequence.extend([r"\sqrt", "{"])
             linearly_connect = []
             for i, child in enumerate(root):
-                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s_a, r_a, sequence_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
                 s.extend(s_a)
                 r.extend(r_a)
+                sequence.extend(sequence_a)
                 linearly_connect.append(subtree_root_id)
                 if i == 0:
                     r.append({
@@ -380,13 +389,14 @@ class CrohmeDataset(Dataset):
                         'tgt_id': subtree_root_id,
                         'type': SrtEdgeTypes.INSIDE
                     })
+            sequence.append("}")
             for src, tgt in zip(linearly_connect, linearly_connect[1:]):
                 r.append({
                     'src_id': src,
                     'tgt_id': tgt,
                     'type': SrtEdgeTypes.RIGHT
                 })
-            return s, r, sqrt_symbol_id
+            return s, r, sequence, sqrt_symbol_id
         elif root.tag == mathml_ns + 'mroot':
             # process subtrees, add sqrt symbol and add base inside and index above
             sqrt_symbol_id = root.attrib.get(xml_ns + 'id')
@@ -394,8 +404,9 @@ class CrohmeDataset(Dataset):
                 'id': sqrt_symbol_id,
                 'symbol': r"\sqrt"
             })
+            sequence.append(r"\sqrt")
             for i, child in enumerate(root):
-                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s_a, r_a, sequence_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
                 s.extend(s_a)
                 r.extend(r_a)
                 if i == 0:
@@ -404,57 +415,81 @@ class CrohmeDataset(Dataset):
                         'tgt_id': subtree_root_id,
                         'type': SrtEdgeTypes.INSIDE
                     })
+                    basis_sequence = sequence_a
                 elif i == 1:
                     r.append({
                         'src_id': sqrt_symbol_id,
                         'tgt_id': subtree_root_id,
                         'type': SrtEdgeTypes.ABOVE
                     })
-            return s, r, sqrt_symbol_id
+                    root_sequence = sequence_a
+
+                if root_sequence:
+                    sequence.append('[')
+                    sequence.extend(root_sequence)
+                    sequence.append(']')
+                sequence.append('{')
+                sequence.extend(basis_sequence)
+                sequence.append('}')
+            return s, r, sequence, sqrt_symbol_id
         elif root.tag in [mathml_ns + 'msub', mathml_ns + 'msup', mathml_ns + 'munder', mathml_ns + 'mover']:
             # process subtrees and add sub/superscript or over/under connection between their roots
             basis_id = None
             script_id = None
             for i, child in enumerate(root):
-                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s_a, r_a, sequence_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
                 s.extend(s_a)
                 r.extend(r_a)
                 if i == 0:
                     basis_id = subtree_root_id
+                    basis_sequence = sequence_a
                 elif i == 1:
                     script_id = subtree_root_id
+                    script_sequence = sequence_a
             if not basis_id or not script_id:
                 logging.warning('MathML sub/superscript syntax error')
                 return s, r, None
+
+            sequence.extend(basis_sequence)
             if root.tag == mathml_ns + 'msub':
                 relation_type = SrtEdgeTypes.SUBSCRIPT
+                sequence.extend(["_", "{"])
             elif root.tag == mathml_ns + 'msup':
                 relation_type = SrtEdgeTypes.SUPERSCRIPT
+                sequence.extend(["^", "{"])
             elif root.tag == mathml_ns + 'munder':
                 relation_type = SrtEdgeTypes.BELOW
+                sequence.extend([r"\underset", "{"])
             else:
                 relation_type = SrtEdgeTypes.ABOVE
+                sequence.extend([r"\overset", "{"])
+            sequence.extend(script_sequence)
+            sequence.append("}")
+
             r.append({
                 'src_id': basis_id,
                 'tgt_id': script_id,
                 'type': relation_type
             })
-            return s, r, basis_id
+            return s, r, sequence, basis_id
         elif root.tag in [mathml_ns + 'msubsup', mathml_ns + 'munderover']:
             # process subtrees and add sub+superscript/under+over connection between their roots
             basis_id = None
             subscript_id = None
             superscript_id = None
             for i, child in enumerate(root):
-                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s_a, r_a, sequence_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
                 s.extend(s_a)
                 r.extend(r_a)
                 if i == 0:
                     basis_id = subtree_root_id
+                    basis_sequence = sequence_a
                 elif i == 1:
                     subscript_id = subtree_root_id
+                    subscript_sequence = sequence_a
                 elif i == 2:
                     superscript_id = subtree_root_id
+                    superscript_sequence = sequence_a
             if not basis_id or not subscript_id or not superscript_id:
                 logging.warning('MathML sub+superscript syntax error')
                 return s, r, None
@@ -466,6 +501,21 @@ class CrohmeDataset(Dataset):
                 relation1 = SrtEdgeTypes.BELOW
                 relation2 = SrtEdgeTypes.ABOVE
 
+            if root.tag == mathml_ns + 'msubsup':
+                sequence.extend(basis_sequence)
+                sequence.extend(["_", "{"])
+                sequence.extend(subscript_sequence)
+                sequence.extend(["}", "^", "{"])
+                sequence.extend(superscript_sequence)
+                sequence.append("}")
+            else:
+                sequence.extend(basis_sequence)
+                sequence.extend([r"\underset", "{"])
+                sequence.extend(subscript_sequence)
+                sequence.extend(["}", r"\overset", "{"])
+                sequence.extend(superscript_sequence)
+                sequence.append("}")
+
             r.append({
                 'src_id': basis_id,
                 'tgt_id': subscript_id,
@@ -476,7 +526,7 @@ class CrohmeDataset(Dataset):
                 'tgt_id': superscript_id,
                 'type': relation2
             })
-            return s, r, basis_id
+            return s, r, sequence, basis_id
         elif root.tag == mathml_ns + 'mfrac':
             # process subtrees, add \frac symbol and add above/below
             # relation to numerator/denominator
@@ -485,19 +535,33 @@ class CrohmeDataset(Dataset):
                 'id': frac_symbol_id,
                 'symbol': r"\frac"
             })
+            sequence.append(r"\frac")
+
             numerator_root_id = None
             denominator_root_id = None
             for i, child in enumerate(root):
-                s_a, r_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
+                s_a, r_a, sequence_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
                 s.extend(s_a)
                 r.extend(r_a)
                 if i == 0:
                     numerator_root_id = subtree_root_id
+                    numerator_sequence = sequence_a
                 elif i == 1:
                     denominator_root_id = subtree_root_id
+                    denominator_sequence = sequence_a
             if not numerator_root_id or not denominator_root_id:
                 logging.warning('MathML fraction syntax error')
-                return s, r, None
+                if not numerator_root_id and not denominator_root_id:
+                    sequence.extend(["{", "}", "{", "}"])
+                elif not numerator_root_id:
+                    sequence.extend(["{", "}", "{"])
+                    sequence.extend(denominator_sequence)
+                    sequence.append("}")
+                elif not denominator_sequence:
+                    sequence.append("{")
+                    sequence.extend(numerator_sequence)
+                    sequence.extend(["}", "{", "}"])
+                return s, r, sequence, None
             r.append({
                 'src_id': frac_symbol_id,
                 'tgt_id': numerator_root_id,
@@ -508,7 +572,12 @@ class CrohmeDataset(Dataset):
                 'tgt_id': denominator_root_id,
                 'type': SrtEdgeTypes.BELOW
             })
-            return s, r, frac_symbol_id
+            sequence.append("{")
+            sequence.extend(numerator_sequence)
+            sequence.extend(["}", "{"])
+            sequence.extend(denominator_sequence)
+            sequence.append("}")
+            return s, r, sequence, frac_symbol_id
         elif root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mo', mathml_ns + 'mtext',
                           mathml_ns + 'mspace', mathml_ns + 'ms']:
             id = root.attrib.get(xml_ns + 'id')
@@ -516,7 +585,8 @@ class CrohmeDataset(Dataset):
                 'id': id,
                 'symbol': root.text
             })
-            return s, r, id
+            sequence = [root.text]
+            return s, r, sequence, id
         else:
             raise ItemLoadError('unknown MathML element: ' + root.tag)
 
@@ -558,26 +628,18 @@ class CrohmeDataset(Dataset):
         try:
             # different namespaces in various types of annotation
             if annotation_type == MathMLAnnotationType.CONTENT:
-                s, r, _ = self.mathml_dfs(xml_namespace, mathml_namespace, math_root)
+                s, r, seq, _ = self.mathml_dfs(xml_namespace, mathml_namespace, math_root)
             else:
-                s, r, _ = self.mathml_dfs(xml_namespace, doc_namespace, math_root)
+                s, r, seq, _ = self.mathml_dfs(xml_namespace, doc_namespace, math_root)
         except AttributeError as e:
             raise ItemLoadError(e)
 
-        return s, r
-
-    def append_special_symbols_with_bslash(self, symbols):
-        sp_symbols = self.get_special_symbols_list()
-        for i, symbol in enumerate(symbols):
-            if symbol['symbol'] in sp_symbols:
-                symbols[i]['symbol'] = "\\" + symbols[i]['symbol']
-        return symbols
+        return s, r, seq
 
     def get_slt(self, inkml_path, latex):
-        symbols, relations = self.parse_mathml(inkml_path)
-        # symbols = self.append_special_symbols_with_bslash(symbols)
+        symbols, relations, sequence = self.parse_mathml(inkml_path)
+        # symbols = self.symbols_to_commands_if_possible(symbols)
         # tokenize symbols
-        # TODO this gives only the first token in case of multiple per node
         x = [[self.tokenizer.encode(s['symbol'], add_special_tokens=False).ids[0]] for s in symbols]
 
         # generate end child nodes
@@ -628,7 +690,7 @@ class CrohmeDataset(Dataset):
 
         # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation)
 
-        return x, edge_index, edge_type, edge_relation
+        return x, edge_index, edge_type, edge_relation, sequence
 
     def get_tree_root(self, edge_index):
         # find the root node as the only one who does not
@@ -748,11 +810,19 @@ class CrohmeDataset(Dataset):
         plt.draw()
         plt.show()
 
+    def symbols_to_commands_if_possible(self, symbols):
+        sp_symbols = self.get_special_symbols_list()
+        for i, symbol in enumerate(symbols):
+            if symbol['symbol'] in sp_symbols:
+                symbols[i]['symbol'] = "\\" + symbols[i]['symbol']
+        return symbols
+
     def get_special_symbols_list(self):
         return [
-            'log', 'sum', 'cos', 'sin', 'forall',
-            'ctdot', 'int', 'ne', 'exists', 'rightarrow', 'infty',
-            'alpha', 'beta', 'gamma', 'delta', 'sigma', 'mu', 'phi',
-            'Alpha', 'Beta', 'Gamma', 'Delta', 'Sigma', 'Mu', 'Phi',
+            'frac', 'sqrt', 'lim', 'log', 'int',
+            'sum', 'cos', 'sin', 'tan', 'cot', 'forall',
+            'exists', 'infty',
+            'alpha', 'beta', 'gamma', 'delta', 'sigma', 'mu', 'phi', 'pi', 'theta', 'lambda',
+            'Alpha', 'Beta', 'Gamma', 'Delta', 'Sigma', 'Mu', 'Phi', 'Pi', 'Theta', 'Lambda',
             'prime', 'times'
         ]

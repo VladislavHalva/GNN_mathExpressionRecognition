@@ -5,7 +5,7 @@ class GPairData(Data):
     def __init__(
             self,
             x=None, edge_index=None, edge_attr=None,
-            gt=None, tgt_y=None, tgt_edge_index=None,
+            gt=None, gt_ml=None, tgt_y=None, tgt_edge_index=None,
             tgt_edge_type=None, tgt_edge_relation=None
     ):
         super().__init__()
@@ -13,6 +13,7 @@ class GPairData(Data):
         self.edge_index = edge_index
         self.edge_attr = edge_attr
         self.gt = gt
+        self.gt_ml = gt_ml
         self.tgt_y = tgt_y
         self.tgt_edge_index = tgt_edge_index
         self.tgt_edge_type = tgt_edge_type

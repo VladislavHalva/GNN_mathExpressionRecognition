@@ -43,8 +43,8 @@ class Decoder(nn.Module):
             # sums token embeddings to one in case of multiple tokens per node
             y = y.squeeze(1)
             # copy embeds for loss
-            embeds = None
-            # embeds = self.lin_z_out(y)
+            # embeds = None
+            embeds = self.lin_z_out(y)
             # rename to be consistent with evaluation time
             y_edge_index = tgt_edge_index
             y_edge_type = tgt_edge_type

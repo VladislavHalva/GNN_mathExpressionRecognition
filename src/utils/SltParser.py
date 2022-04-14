@@ -1,8 +1,11 @@
+import logging
+
 import networkx as nx
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from networkx.drawing.nx_pydot import graphviz_layout
+from treelib import Node, Tree
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
@@ -12,8 +15,9 @@ from src.definitions.exceptions.SltStructureError import SltStructureError
 class SltParser:
     @staticmethod
     def get_root(tokens, pc_edge_index):
+        # THERE HAS TO BE ONLY SINGLE TREE (one root in graph)
         tokens_ids = np.array(list(range(len(tokens))))
-        targets = np.array(list(set([edge[1] for edge in pc_edge_index])))
+        targets = np.array(list(set([edge[1] for edge in pc_edge_index if edge[1] < len(tokens)])))
         tokens_ids = np.delete(tokens_ids, targets)
 
         if tokens_ids.shape[0] == 0 or tokens_ids.shape[0] > 1:
@@ -97,6 +101,8 @@ class SltParser:
             inside = []
             pass
 
+        # TODO add above and below
+
         # common rules for super/subscripts and right positions
         if len(subscript) > 0:
             output.extend(['_', '{'])
@@ -118,6 +124,45 @@ class SltParser:
         return output
 
     @staticmethod
+    def identify_reachable_nodes(tokens, pc_edge_index, bb_edge_index, root_id):
+        token_ids = list(range(len(tokens)))
+
+        # BFS traversal to identify reachable nodes (from root)
+        visited = []
+        queue = []
+        reachable = []
+        queue.append(root_id)
+        reachable.append(root_id)
+        while queue:
+            current_root = queue.pop(0)
+            if current_root not in visited:
+                visited.append(current_root)
+                current_root_children = SltParser.get_children(current_root, pc_edge_index, bb_edge_index)
+                children_ids = [child['id'] for child in current_root_children]
+                queue.extend(children_ids)
+                reachable.extend(children_ids)
+
+        reachable = list(set(reachable))
+        return reachable
+
+    @staticmethod
+    def remove_unconnected_edges(node_ids, pc_edge_index, pc_edge_relations, bb_edge_index):
+        pc_remove_ids = []
+        bb_remove_ids = []
+        for i, edge in enumerate(pc_edge_index):
+            if edge[0] not in node_ids or edge[1] not in node_ids:
+                pc_remove_ids.append(i)
+        for i, edge in enumerate(bb_edge_index):
+            if edge[0] not in node_ids or edge[1] not in node_ids:
+                bb_remove_ids.append(i)
+
+        pc_edge_index = np.delete(pc_edge_index, pc_remove_ids, axis=0)
+        pc_edge_relations = np.delete(pc_edge_relations, pc_remove_ids)
+        bb_edge_index = np.delete(bb_edge_index, bb_remove_ids, axis=0)
+        return pc_edge_index, pc_edge_relations, bb_edge_index
+
+
+    @staticmethod
     def remove_nodes(x, x_remove_ids, edge_index1, edge_index2, edge_relations1):
         x = np.delete(x, x_remove_ids)
         edge_index1_r_ids = []
@@ -137,11 +182,11 @@ class SltParser:
     def slt_to_latex_predictions(tokenizer, x, edge_relations, edge_index, edge_type):
         # get symbols
         x = x.numpy()
-        tokens = [tokenizer.decode([token_id]) for token_id in x]
-        return SltParser.slt_to_latex(tokenizer, tokens, edge_relations, edge_index, edge_type)
+        tokens = [tokenizer.decode([token_id], skip_special_tokens=False) for token_id in x]
+        return SltParser.slt_to_latex(tokens, edge_relations, edge_index, edge_type)
 
     @staticmethod
-    def slt_to_latex(tokenizer, tokens, edge_relations, edge_index, edge_type):
+    def slt_to_latex(tokens, edge_relations, edge_index, edge_type):
         # keep only parent-child edges
         edge_pc_indices = ((edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
         edge_bb_indices = ((edge_type == SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER).nonzero(as_tuple=True)[0])
@@ -154,22 +199,10 @@ class SltParser:
         pc_edge_relations = pc_edge_relations.numpy()
         bb_edge_index = bb_edge_index.numpy()
 
-        g = nx.Graph()
-        for edge in pc_edge_index:
-            g.add_edge(edge[0], edge[1])
-
-        pos = graphviz_layout(g, prog="dot")
-        nx.draw(g, pos, with_labels=True)
-        plt.show()
-
-        # remove end leaf nodes
-        end_node_ids = [i for i, token in enumerate(tokens) if not token]
-        tokens, pc_edge_index, bb_edge_index, pc_edge_relations = \
-            SltParser.remove_nodes(tokens, end_node_ids, pc_edge_index, bb_edge_index, pc_edge_relations)
-
+        # identify root - needs to be done before removing any nodes
         if pc_edge_index.shape[0] == 0:
             if tokens.shape[0] == 0:
-                # if there is no node left, return empty string
+                # if there is no node at all --> return empty string
                 return ""
             else:
                 # if no edges, but single node --> the only node in graph is root
@@ -177,7 +210,48 @@ class SltParser:
         else:
             root_id = SltParser.get_root(tokens, pc_edge_index)
             if root_id is None:
+                logging.warning('Attempt to decode node without root')
                 return ""
+
+        # remove end leaf nodes
+        # SIMPLE VERSION (PRUNES): end_node_ids = [i for i, token in enumerate(tokens) if token == '[EOS]']
+        # for training time's sake change nodes classified as [EOS] to empty string
+        #   -> will not prune their whole subtree
+        src_nodes_ids = [edge[0] for edge in pc_edge_index]
+        end_node_ids = []
+        for i, token in enumerate(tokens):
+            if token == '[EOS]':
+                if i in src_nodes_ids:
+                    tokens[i] = ''
+                else:
+                    end_node_ids.append(i)
+        tokens, pc_edge_index, bb_edge_index, pc_edge_relations = \
+            SltParser.remove_nodes(tokens, end_node_ids, pc_edge_index, bb_edge_index, pc_edge_relations)
+
+        # remove nodes not reachable from root
+        # Note: matters in training time only - otherwise only end leaf nodes will be removed
+        #       (subtree generation always ends with EOS)
+        reachable_node_ids = SltParser.identify_reachable_nodes(tokens, pc_edge_index, bb_edge_index, root_id)
+        unreachable_nodes_ids = [token_id for token_id, _ in enumerate(tokens) if token_id not in reachable_node_ids]
+        tokens, pc_edge_index, bb_edge_index, pc_edge_relations = \
+            SltParser.remove_nodes(tokens, unreachable_nodes_ids, pc_edge_index, bb_edge_index, pc_edge_relations)
+
+        # remove edges implying non-existing nodes (were within the unreachable subtrees)
+        pc_edge_index, pc_edge_relations, bb_edge_index = \
+            SltParser.remove_unconnected_edges([i for i in range(len(tokens))], pc_edge_index, pc_edge_relations, bb_edge_index)
+
+        g = nx.Graph()
+        for edge in pc_edge_index:
+            g.add_edge(edge[0], edge[1])
+
+        labeldict = {}
+        for i, x_i in enumerate(tokens):
+            labeldict[i] = str(i) + tokens[i]
+        g = nx.relabel_nodes(g, labeldict)
+
+        pos = graphviz_layout(g, prog="dot")
+        nx.draw(g, pos, with_labels=True)
+        plt.show()
 
         latex = SltParser.parse_slt_subtree(root_id, tokens, pc_edge_index, bb_edge_index, pc_edge_relations)
         return ' '.join(latex)

@@ -1,5 +1,6 @@
 import logging
 import os.path
+import re
 import sys
 import timeit
 from itertools import chain
@@ -27,10 +28,10 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
-    load_vocab = False
+    load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 200
-    batch_size = 1
+    epochs = 150
+    batch_size = 4
     components_shape = (32, 32)
     edge_features = 19
     enc_in_size = 256
@@ -41,7 +42,7 @@ if __name__ == '__main__':
 
     load_model = True
     load_model_path = "checkpoints/"
-    load_model_name = "MER_3L_19_256_256_256_simple_22-04-06_00-08-36_final.pth"
+    load_model_name = "MER_embeds_19_256_400_256_simple_22-04-14_23-28-28_final.pth"
 
     train = False
     train_sufficient_loss = 0.05
@@ -55,8 +56,8 @@ if __name__ == '__main__':
     train_images_root = 'assets/crohme/simple/img/'
     train_inkmls_root = 'assets/crohme/simple/inkml/'
     # for test
-    test_images_root = 'assets/crohme/dev/img/'
-    test_inkmls_root = 'assets/crohme/dev/inkml/'
+    test_images_root = 'assets/crohme/simple/img/'
+    test_inkmls_root = 'assets/crohme/simple/inkml/'
 
     # folder where data item representations will be stored
     tmp_path = 'temp'
@@ -72,6 +73,9 @@ if __name__ == '__main__':
     vocab_size = tokenizer.get_vocab_size()
     end_node_token_id = tokenizer.encode("[EOS]", add_special_tokens=False).ids[0]
 
+    logging.info(f"Vocab size: {vocab_size}")
+    logging.info(f"Device: {device}")
+
     model = Model(
         device,
         components_shape, edge_features,
@@ -80,15 +84,17 @@ if __name__ == '__main__':
     model.float()
     if load_model:
         model.load_state_dict(torch.load(os.path.join(load_model_path, load_model_name)))
+        logging.info(f"Model loaded: {load_model_name}")
     model.to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=0.001)
     loss_f = nn.CrossEntropyLoss()
 
     now = datetime.datetime.now()
-    model_name = 'MER_3L_'+'19_256_256_256_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
+    model_name = 'MER_embeds_'+'19_256_400_256_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
 
     if train:
+        logging.info("Training...")
         trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape, tmp_path)
 
         trainloader = DataLoader(trainset, batch_size, True, follow_batch=['x', 'tgt_y'])
@@ -112,7 +118,7 @@ if __name__ == '__main__':
                 loss_out_node = loss_f(out.y_score, out.tgt_y.squeeze(1))
 
                 # calculate loss as cross-entropy on decoder embeddings
-                # loss_embeds = F.nll_loss(out.embeds, out.tgt_y.squeeze(1))
+                loss_embeds = loss_f(out.embeds, out.tgt_y.squeeze(1))
 
                 # calculate loss as cross-entropy on output graph SRT edge type predictions
                 tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
@@ -120,7 +126,7 @@ if __name__ == '__main__':
                 out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
                 loss_out_edge = loss_f(out_pc_edge_relation, tgt_pc_edge_relation)
 
-                loss = loss_out_node + loss_out_edge
+                loss = 0.5 * loss_out_node + 0.5 * loss_embeds + loss_out_edge
 
                 loss.backward()
 
@@ -151,9 +157,15 @@ if __name__ == '__main__':
 
         if save_run:
             torch.save(model.state_dict(), 'checkpoints/' + model_name + '_final' + '.pth')
+            logging.info("Model final state saved")
 
     if evaluate:
+        logging.info("Evaluation...")
         testset = CrohmeDataset(test_images_root, test_inkmls_root, tokenizer, components_shape)
+
+        for elem in testset:
+            pass
+
         testloader = DataLoader(testset, 1, False, follow_batch=['x', 'tgt_y'])
 
         model.eval()
@@ -168,14 +180,16 @@ if __name__ == '__main__':
                 y_edge_rel_pred = F.softmax(out.y_edge_rel_score, dim=1)
                 y_edge_rel_pred = torch.argmax(y_edge_rel_pred, dim=1)
 
-                # latex = SltParser.slt_to_latex_predictions(tokenizer, y_pred, out.tgt_edge_relation, out.y_edge_index, out.y_edge_type)
+                latex = SltParser.slt_to_latex_predictions(tokenizer, y_pred, y_edge_rel_pred, out.y_edge_index, out.y_edge_type)
                 # latex = SltParser.slt_to_latex_predictions(tokenizer, out.tgt_y.squeeze(1), out.tgt_edge_relation, out.tgt_edge_index, out.tgt_edge_type)
 
                 # print(y_pred)
-                print('GT: ' + tokenizer.decode(out.tgt_y.squeeze(1).tolist()))
-                print('PR: ' + tokenizer.decode(y_pred.tolist()))
-                # print('GT: ' + tokenizer.decode(out.gt.tolist()))
-                # print('PR: ' + latex)
+                # print('GT: ' + tokenizer.decode(out.tgt_y.squeeze(1).tolist()))
+                # print('PR: ' + tokenizer.decode(y_pred.tolist()))
+                gt_ml = tokenizer.decode(out.gt_ml.tolist())
+                gt_ml = re.sub(' +', ' ', gt_ml)
+                print('GT: ' + gt_ml)
+                print('PR: ' + latex)
                 # print('nodes count: ' + str(out.y_score.shape[0]))
                 # print('edges count: ' + str(out.y_edge_rel_score.shape[0]))
                 print("\n")
