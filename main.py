@@ -23,8 +23,12 @@ from src.data.LatexVocab import LatexVocab
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.model.Model import Model
 from src.utils.SltParser import SltParser
+from src.utils.loss import loss_termination
+from src.utils.utils import cpy_simple_train_gt
 
 if __name__ == '__main__':
+    # cpy_simple_train_gt()
+
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
@@ -40,11 +44,11 @@ if __name__ == '__main__':
     dec_h_size = 256
     emb_size = 256
 
-    load_model = True
+    load_model = False
     load_model_path = "checkpoints/"
-    load_model_name = "MER_embeds_19_256_400_256_simple_22-04-14_23-28-28_final.pth"
+    load_model_name = "MER_half_node_loss_and_embeds19_256_400_256_train_22-04-14_21-05-00_epoch-chck.pth"
 
-    train = False
+    train = True
     train_sufficient_loss = 0.05
     evaluate = True
     save_run = True
@@ -53,11 +57,11 @@ if __name__ == '__main__':
     # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
     # for training
-    train_images_root = 'assets/crohme/simple/img/'
-    train_inkmls_root = 'assets/crohme/simple/inkml/'
+    train_images_root = 'assets/crohme/train_simple/img/'
+    train_inkmls_root = 'assets/crohme/train_simple/inkml/'
     # for test
-    test_images_root = 'assets/crohme/simple/img/'
-    test_inkmls_root = 'assets/crohme/simple/inkml/'
+    test_images_root = 'assets/crohme/train_simple/img/'
+    test_inkmls_root = 'assets/crohme/train_simple/inkml/'
 
     # folder where data item representations will be stored
     tmp_path = 'temp'
@@ -83,7 +87,7 @@ if __name__ == '__main__':
         vocab_size, end_node_token_id)
     model.float()
     if load_model:
-        model.load_state_dict(torch.load(os.path.join(load_model_path, load_model_name)))
+        model.load_state_dict(torch.load(os.path.join(load_model_path, load_model_name), map_location=device))
         logging.info(f"Model loaded: {load_model_name}")
     model.to(device)
 
@@ -91,7 +95,7 @@ if __name__ == '__main__':
     loss_f = nn.CrossEntropyLoss()
 
     now = datetime.datetime.now()
-    model_name = 'MER_embeds_'+'19_256_400_256_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
+    model_name = 'MER_embeds_eos_'+'19_256_400_256_train_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
 
     if train:
         logging.info("Training...")
@@ -120,13 +124,16 @@ if __name__ == '__main__':
                 # calculate loss as cross-entropy on decoder embeddings
                 loss_embeds = loss_f(out.embeds, out.tgt_y.squeeze(1))
 
+                # calculate additional loss penalizing classification non-end nodes as end nodes
+                loss_end_nodes = loss_termination(out.y_score, out.tgt_y.squeeze(1), end_node_token_id)
+
                 # calculate loss as cross-entropy on output graph SRT edge type predictions
                 tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
                 tgt_pc_edge_relation = out.tgt_edge_relation[tgt_edge_pc_indices]
                 out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
                 loss_out_edge = loss_f(out_pc_edge_relation, tgt_pc_edge_relation)
 
-                loss = 0.5 * loss_out_node + 0.5 * loss_embeds + loss_out_edge
+                loss = loss_out_node + loss_end_nodes + loss_embeds + loss_out_edge
 
                 loss.backward()
 
@@ -174,6 +181,8 @@ if __name__ == '__main__':
             for i, data_batch in enumerate(testloader):
                 data_batch = data_batch.to(device)
                 out = model(data_batch)
+                if device == torch.device('cuda'):
+                    out = out.cpu()
 
                 y_pred = F.softmax(out.y_score, dim=1)
                 y_pred = torch.argmax(y_pred, dim=1)
@@ -184,8 +193,8 @@ if __name__ == '__main__':
                 # latex = SltParser.slt_to_latex_predictions(tokenizer, out.tgt_y.squeeze(1), out.tgt_edge_relation, out.tgt_edge_index, out.tgt_edge_type)
 
                 # print(y_pred)
-                # print('GT: ' + tokenizer.decode(out.tgt_y.squeeze(1).tolist()))
-                # print('PR: ' + tokenizer.decode(y_pred.tolist()))
+                print('GT: ' + tokenizer.decode(out.tgt_y.squeeze(1).tolist()))
+                print('PR: ' + tokenizer.decode(y_pred.tolist()))
                 gt_ml = tokenizer.decode(out.gt_ml.tolist())
                 gt_ml = re.sub(' +', ' ', gt_ml)
                 print('GT: ' + gt_ml)
@@ -193,3 +202,7 @@ if __name__ == '__main__':
                 # print('nodes count: ' + str(out.y_score.shape[0]))
                 # print('edges count: ' + str(out.y_edge_rel_score.shape[0]))
                 print("\n")
+
+
+                if i == 100:
+                    break

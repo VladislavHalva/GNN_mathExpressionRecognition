@@ -240,18 +240,18 @@ class SltParser:
         pc_edge_index, pc_edge_relations, bb_edge_index = \
             SltParser.remove_unconnected_edges([i for i in range(len(tokens))], pc_edge_index, pc_edge_relations, bb_edge_index)
 
-        g = nx.Graph()
-        for edge in pc_edge_index:
-            g.add_edge(edge[0], edge[1])
-
-        labeldict = {}
-        for i, x_i in enumerate(tokens):
-            labeldict[i] = str(i) + tokens[i]
-        g = nx.relabel_nodes(g, labeldict)
-
-        pos = graphviz_layout(g, prog="dot")
-        nx.draw(g, pos, with_labels=True)
-        plt.show()
+        # g = nx.Graph()
+        # for edge in pc_edge_index:
+        #     g.add_edge(edge[0], edge[1])
+        #
+        # labeldict = {}
+        # for i, x_i in enumerate(tokens):
+        #     labeldict[i] = str(i) + tokens[i]
+        # g = nx.relabel_nodes(g, labeldict)
+        #
+        # pos = graphviz_layout(g, prog="dot")
+        # nx.draw(g, pos, with_labels=True)
+        # plt.show()
 
         latex = SltParser.parse_slt_subtree(root_id, tokens, pc_edge_index, bb_edge_index, pc_edge_relations)
         return ' '.join(latex)
