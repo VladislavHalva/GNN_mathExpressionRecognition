@@ -28,6 +28,7 @@ from src.utils.utils import cpy_simple_train_gt
 
 if __name__ == '__main__':
     # cpy_simple_train_gt()
+    # exit()
 
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True

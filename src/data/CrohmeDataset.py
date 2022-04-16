@@ -405,6 +405,8 @@ class CrohmeDataset(Dataset):
                 'symbol': r"\sqrt"
             })
             sequence.append(r"\sqrt")
+            basis_sequence = None
+            root_sequence = None
             for i, child in enumerate(root):
                 s_a, r_a, sequence_a, subtree_root_id = self.mathml_dfs(xml_ns, mathml_ns, child)
                 s.extend(s_a)
