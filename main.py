@@ -27,9 +27,6 @@ from src.utils.loss import loss_termination
 from src.utils.utils import cpy_simple_train_gt
 
 if __name__ == '__main__':
-    # cpy_simple_train_gt()
-    # exit()
-
     logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
@@ -37,7 +34,7 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     epochs = 150
     batch_size = 4
-    components_shape = (32, 32)
+    components_shape = (64, 64)
     edge_features = 19
     enc_in_size = 256
     enc_h_size = 400
@@ -47,8 +44,9 @@ if __name__ == '__main__':
 
     load_model = False
     load_model_path = "checkpoints/"
-    load_model_name = "MER_half_node_loss_and_embeds19_256_400_256_train_22-04-14_21-05-00_epoch-chck.pth"
+    load_model_name = "MER_ne_only_19_256_400_256_simple_22-04-20_00-28-50_final.pth"
 
+    test = False
     train = True
     train_sufficient_loss = 0.05
     evaluate = True
@@ -58,11 +56,11 @@ if __name__ == '__main__':
     # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
     # for training
-    train_images_root = 'assets/crohme/train_simple/img/'
-    train_inkmls_root = 'assets/crohme/train_simple/inkml/'
+    train_images_root = 'assets/crohme/simple/img/'
+    train_inkmls_root = 'assets/crohme/simple/inkml/'
     # for test
-    test_images_root = 'assets/crohme/train_simple/img/'
-    test_inkmls_root = 'assets/crohme/train_simple/inkml/'
+    test_images_root = 'assets/crohme/simple/img/'
+    test_inkmls_root = 'assets/crohme/simple/inkml/'
 
     # folder where data item representations will be stored
     tmp_path = 'temp'
@@ -96,11 +94,41 @@ if __name__ == '__main__':
     loss_f = nn.CrossEntropyLoss()
 
     now = datetime.datetime.now()
-    model_name = 'MER_embeds_eos_'+'19_256_400_256_train_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
+    model_name = 'MER_ne_only_'+'19_256_400_256_simple'+'_'+now.strftime("%y-%m-%d_%H-%M-%S")
+
+    if test:
+        trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape)
+        trainloader = DataLoader(trainset, 1, True, follow_batch=['x', 'tgt_y'])
+        model.train()
+        for i, data_batch in enumerate(trainloader):
+            data_batch = data_batch.to(device)
+
+            optimizer.zero_grad()
+            out = model(data_batch)
+
+            # calculate loss as cross-entropy on output graph node predictions
+            loss_out_node = loss_f(out.y_score, out.tgt_y.squeeze(1))
+
+            # calculate loss as cross-entropy on decoder embeddings
+            loss_embeds = loss_f(out.embeds, out.tgt_y.squeeze(1))
+
+            # calculate additional loss penalizing classification non-end nodes as end nodes
+            # loss_end_nodes = loss_termination(out.y_score, out.tgt_y.squeeze(1), end_node_token_id)
+
+            # calculate loss as cross-entropy on output graph SRT edge type predictions
+            tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
+            tgt_pc_edge_relation = out.tgt_edge_relation[tgt_edge_pc_indices]
+            out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
+            loss_out_edge = loss_f(out_pc_edge_relation, tgt_pc_edge_relation)
+
+            loss = loss_out_node + loss_out_edge
+
+            loss.backward()
+            optimizer.step()
 
     if train:
         logging.info("Training...")
-        trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape, tmp_path)
+        trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape)
 
         trainloader = DataLoader(trainset, batch_size, True, follow_batch=['x', 'tgt_y'])
         if save_run:
@@ -126,7 +154,7 @@ if __name__ == '__main__':
                 loss_embeds = loss_f(out.embeds, out.tgt_y.squeeze(1))
 
                 # calculate additional loss penalizing classification non-end nodes as end nodes
-                loss_end_nodes = loss_termination(out.y_score, out.tgt_y.squeeze(1), end_node_token_id)
+                # loss_end_nodes = loss_termination(out.y_score, out.tgt_y.squeeze(1), end_node_token_id)
 
                 # calculate loss as cross-entropy on output graph SRT edge type predictions
                 tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
@@ -134,7 +162,7 @@ if __name__ == '__main__':
                 out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
                 loss_out_edge = loss_f(out_pc_edge_relation, tgt_pc_edge_relation)
 
-                loss = loss_out_node + loss_end_nodes + loss_embeds + loss_out_edge
+                loss = loss_out_node + loss_out_edge
 
                 loss.backward()
 

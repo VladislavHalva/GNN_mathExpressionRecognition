@@ -141,6 +141,7 @@ class GCNDecLayer(MessagePassing):
         alpha = alpha * alpha_batch_mask
         # softmax along source graph feature coefficients - irrelevant ones are zeros (masked)
         alpha = F.softmax(alpha, dim=1)
+        # print(torch.argmax(alpha, dim=1))
         c = alpha @ f_context
         # combine context vector and feature vector acquired from graph convolution
         z = h + c

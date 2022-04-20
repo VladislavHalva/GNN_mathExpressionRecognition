@@ -1,7 +1,7 @@
 import os
 import pickle
 import random
-from math import sqrt
+from math import sqrt, ceil
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import cv2 as cv
@@ -106,6 +106,18 @@ class CrohmeDataset(Dataset):
         edges, edge_features = self.get_line_of_sight_edges(components, components_mask)
         # self.draw_los(image_path, components, edges)
 
+        # plot components
+        # cols = 4
+        # rows = ceil(len(components) / cols)
+        # row = 0
+        # col = 0
+        # _, axs = plt.subplots(rows, cols, figsize=(32, 32))
+        # axs = axs.flatten()
+        # for component, ax in zip(components, axs):
+        #     image = component['image']
+        #     ax.imshow(image)
+        # plt.show()
+
         # BUILD PyG GRAPH DATA ELEMENT
         # input components images
         component_images = [component['image'] for component in components]
@@ -143,7 +155,7 @@ class CrohmeDataset(Dataset):
         gt = torch.tensor(gt_latex_tokens.ids, dtype=torch.long)
 
         # build target symbol layout tree
-        tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, gt_from_mathml = self.get_slt(inkml_path, gt_latex)
+        tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, gt_from_mathml = self.get_slt(inkml_path)
 
         tgt_y = torch.tensor(tgt_y, dtype=torch.long)
         tgt_edge_index = torch.tensor(tgt_edge_index, dtype=torch.long)
@@ -156,6 +168,18 @@ class CrohmeDataset(Dataset):
         gt_from_mathml = torch.tensor(gt_from_mathml.ids, dtype=torch.long)
 
         return gt, gt_from_mathml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation
+
+    def add_padding_to_component(self, component):
+        # get the bigger of images sizes
+        new_size = max(component.shape[0], component.shape[1])
+        # create empty array of background
+        padded = np.full((new_size, new_size), 255, dtype=np.uint8)
+        # compute center offset to insert original component image
+        y_center = (new_size - component.shape[0]) // 2
+        x_center = (new_size - component.shape[1]) // 2
+        # copy original image to center of new bg image
+        padded[y_center:y_center + component.shape[0], x_center:x_center + component.shape[1]] = component
+        return padded
 
     def extract_components_from_image(self, imagepath):
         img = cv.imread(imagepath, cv.IMREAD_GRAYSCALE)
@@ -177,8 +201,12 @@ class CrohmeDataset(Dataset):
             component_mask = (labels != i).astype("uint8") * 255
             # extract component area - bounding box
             component = component_mask[y:y + h, x:x + w]
+            # add padding if aspect ratio is too high --> resize would totally ruin the image
+            aspect_ratio = w / h
+            if aspect_ratio > 2 or aspect_ratio < 0.5:
+                component = self.add_padding_to_component(component)
             # resize to desired shape
-            component = cv.resize(component, self.components_shape, interpolation=cv.INTER_CUBIC)
+            component = cv.resize(component, self.components_shape, interpolation=cv.INTER_AREA)
             # and binarize again - if INTER_NEAREST is used, gaps appear within symbols
             _, component = cv.threshold(component, 128, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
 
@@ -592,7 +620,51 @@ class CrohmeDataset(Dataset):
         else:
             raise ItemLoadError('unknown MathML element: ' + root.tag)
 
-    def parse_mathml(self, inkml_path):
+    def parse_traces_inkml(self, ns, root):
+        traces = []
+        for trace_node in root.findall(ns + 'trace'):
+            trace_id = trace_node.get('id')
+            trace_def = trace_node.text
+            trace_def = trace_def.split(',')
+            trace_points = []
+            for trace_def_elem in trace_def:
+                point_coords = trace_def_elem.split(' ')
+                point_coords = [coord.strip() for coord in point_coords]
+                point_coords = list(filter(lambda coords: coords != '', point_coords))
+                point_x = round(float(point_coords[0]))
+                point_y = round(float(point_coords[1]))
+                trace_points.append([point_x, point_y])
+            traces.append({
+                'id': trace_id,
+                'points': trace_points
+            })
+        return traces
+
+    def parse_tracegroups_inkml(self, ns, root):
+        tracegroups_list = []
+        expression_group = root.find(ns + 'traceGroup')
+        if expression_group is None:
+            return []
+        tracegroups = expression_group.findall(ns + 'traceGroup')
+        for tracegroup in tracegroups:
+            gr_symbol_id = tracegroup.find(ns + 'annotationXML')
+            if gr_symbol_id is not None:
+                gr_symbol_id = gr_symbol_id.get('href')
+            gr_symbol_text = tracegroup.find(ns + 'annotation[@type="truth"]')
+            if gr_symbol_text is not None:
+                gr_symbol_text = gr_symbol_text.text
+            traces_list = []
+            traces = tracegroup.findall(ns + 'traceView')
+            for trace in traces:
+                traces_list.append(trace.get('traceDataRef'))
+            tracegroups_list.append({
+                'symbol_id': gr_symbol_id,
+                'symbol_text': gr_symbol_text,
+                'traces': traces_list
+            })
+        return tracegroups_list
+
+    def parse_inkml(self, inkml_path):
         if not os.path.isfile(inkml_path) and Path(inkml_path).suffix != '.inkml':
             raise ItemLoadError("Inkml file does not exists: " + inkml_path)
 
@@ -606,8 +678,10 @@ class CrohmeDataset(Dataset):
         root = tree.getroot()
 
         # get mathml annotation section and determine type
-        annotation_mathml_content = root.find(doc_namespace + 'annotationXML[@type="truth"][@encoding="Content-MathML"]')
-        annotation_mathml_presentation = root.find(doc_namespace + 'annotationXML[@type="truth"][@encoding="Presentation-MathML"]')
+        annotation_mathml_content = root.find(
+            doc_namespace + 'annotationXML[@type="truth"][@encoding="Content-MathML"]')
+        annotation_mathml_presentation = root.find(
+            doc_namespace + 'annotationXML[@type="truth"][@encoding="Presentation-MathML"]')
         if annotation_mathml_content:
             annotation_type = MathMLAnnotationType.CONTENT
             annotation_mathml = annotation_mathml_content
@@ -636,10 +710,16 @@ class CrohmeDataset(Dataset):
         except AttributeError as e:
             raise ItemLoadError(e)
 
+        # identify all traces included in expression
+        traces = self.parse_traces_inkml(doc_namespace, root)
+
+        # parse trace-groups corresponding to separate symbols
+        tracegroups = self.parse_tracegroups_inkml(doc_namespace, root)
+
         return s, r, seq
 
-    def get_slt(self, inkml_path, latex):
-        symbols, relations, sequence = self.parse_mathml(inkml_path)
+    def get_slt(self, inkml_path):
+        symbols, relations, sequence = self.parse_inkml(inkml_path)
         # symbols = self.symbols_to_commands_if_possible(symbols)
         # tokenize symbols
         x = [[self.tokenizer.encode(s['symbol'], add_special_tokens=False).ids[0]] for s in symbols]
@@ -690,7 +770,7 @@ class CrohmeDataset(Dataset):
         edge_type.extend(SltEdgeTypes.CURRENT_CURRENT for _ in self_edges)
         edge_relation.extend(SrtEdgeTypes.UNDEFINED for _ in self_edges)
 
-        # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation)
+        # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation, include_end_nodes=True)
 
         return x, edge_index, edge_type, edge_relation, sequence
 

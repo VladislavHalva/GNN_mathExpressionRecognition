@@ -15,12 +15,12 @@ class GATLayer(MessagePassing):
         self.input_size = input_size
         self.hidden_size = hidden_size
 
-        self.lin_edge_update = Linear(3 * input_size, input_size, bias=False, weight_initializer='glorot')
+        self.lin_edge_update = Linear(3 * input_size, hidden_size, bias=False, weight_initializer='glorot')
 
         self.lin = Linear(input_size, hidden_size, bias=False, weight_initializer='glorot')
         self.att = Parameter(torch.Tensor(1, hidden_size))
 
-        self.lin_edge = Linear(input_size, hidden_size, bias=False, weight_initializer='glorot')
+        self.lin_edge = Linear(hidden_size, hidden_size, bias=False, weight_initializer='glorot')
         self.att_edge = Parameter(torch.Tensor(1, hidden_size))
 
         self.bias = Parameter(torch.Tensor(hidden_size))
@@ -52,25 +52,20 @@ class GATLayer(MessagePassing):
         # compute node-level attention for input nodes
         alpha = (x * self.att).sum(dim=-1)
         # compute edge attributes lin. transformation
-        edge_attr = self.lin_edge(edge_attr)
+        alpha_edge = (self.lin_edge(edge_attr) * self.att_edge).sum(dim=-1)
         # propagation
-        out = self.propagate(edge_index, x=x, alpha=alpha, edge_attr=edge_attr, size=size)
+        out = self.propagate(edge_index, x=x, alpha=alpha, alpha_edge=alpha_edge, size=size)
         return out, edge_index, edge_attr
 
     def edge_update(self, x_i, x_j, edge_attr):
         concatenated_features = torch.cat((x_i, edge_attr, x_j), dim=-1)
         return F.leaky_relu(self.lin_edge_update(concatenated_features))
 
-    def message(self, x_j, alpha_j, alpha_i, edge_attr, index, ptr, size_i):
-        # sum attention contributions of src and tgt edge node features
-        alpha = alpha_i + alpha_j
-        alpha_edge = (edge_attr * self.att_edge).sum(dim=-1)
-
-        # add attention contribution of edge features
-        alpha = alpha + alpha_edge
-
+    def message(self, x_j, alpha_j, alpha_i, alpha_edge, index, ptr, size_i):
+        # sum attention contributions of src and tgt edge node features and edge features
+        alpha = alpha_i + alpha_j + alpha_edge
         # compute node feature update
-        alpha = F.leaky_relu(alpha, 0.1)
+        alpha = F.leaky_relu(alpha)
         alpha = softmax(alpha, index, ptr, size_i)
         alpha = F.dropout(alpha, p=0.2, training=self.training)
-        return F.leaky_relu(x_j * alpha.unsqueeze(-1), 0.1)
+        return F.leaky_relu(x_j * alpha.unsqueeze(-1))
