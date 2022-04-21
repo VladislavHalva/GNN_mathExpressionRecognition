@@ -40,6 +40,8 @@ class GCNDecLayer(MessagePassing):
         self.bias = Parameter(torch.Tensor(out_size))
         self.reset_parameters()
 
+        self.alpha_values = None
+
     def reset_parameters(self):
         self.lin_f_att.reset_parameters()
         self.lin_f_context.reset_parameters()
@@ -141,7 +143,7 @@ class GCNDecLayer(MessagePassing):
         alpha = alpha * alpha_batch_mask
         # softmax along source graph feature coefficients - irrelevant ones are zeros (masked)
         alpha = F.softmax(alpha, dim=1)
-        # print(torch.argmax(alpha, dim=1))
+        self.alpha_values = alpha
         c = alpha @ f_context
         # combine context vector and feature vector acquired from graph convolution
         z = h + c

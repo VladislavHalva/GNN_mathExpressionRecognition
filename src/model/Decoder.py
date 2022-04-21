@@ -50,14 +50,16 @@ class Decoder(nn.Module):
             y_edge_type = tgt_edge_type
             y_batch = tgt_y_batch
             # gcn layers
-            # print(torch.sum(y[0]))
             y = self.gcn1(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
+            gcn1_alpha = self.gcn1.alpha_values
             y = self.gcn2(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
+            gcn2_alpha = self.gcn2.alpha_values
             y = self.gcn3(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
-            # print(torch.sum(y[0]))
+            gcn3_alpha = self.gcn3.alpha_values
         else:
             embeds = None
             y, y_edge_index, y_edge_type = self.generate_output_graph(x)
+            gcn1_alpha, gcn2_alpha, gcn3_alpha = None, None, None
 
         # predictions for nodes from output graph
         y_score = self.lin_z_out(y)
@@ -66,7 +68,7 @@ class Decoder(nn.Module):
         y_edge_features = y_edge_features.flatten(1)
         # predictions for edges from output graph
         y_edge_rel_score = self.lin_g_out(y_edge_features)
-        return y, y_edge_index, y_edge_type, y_score, y_edge_rel_score, embeds
+        return y, y_edge_index, y_edge_type, y_score, y_edge_rel_score, embeds, gcn1_alpha, gcn2_alpha, gcn3_alpha
 
     def generate_output_graph(self, x):
         y = torch.zeros(0, dtype=torch.float).to(self.device)

@@ -78,14 +78,15 @@ class CrohmeDataset(Dataset):
             else:
                 # build data if temp not exists
                 # get source graph - LoS
-                x, edge_index, edge_attr = self.get_src_item(image_path)
+                x, edge_index, edge_attr, los_components = self.get_src_item(image_path)
                 # get tgt graph - SLT, and LaTeX ground-truth
-                gt, gt_ml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation = self.get_tgt_item(inkml_path)
+                gt, gt_ml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, attn_gt = self.get_tgt_item(image_path, inkml_path, los_components)
                 # build dataset item
                 data = GPairData(
                     x=x, edge_index=edge_index, edge_attr=edge_attr,
                     gt=gt, gt_ml=gt_ml, tgt_y=tgt_y, tgt_edge_index=tgt_edge_index,
-                    tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation
+                    tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation,
+                    attn_gt=attn_gt
                 )
 
                 if self.tmp_path:
@@ -144,9 +145,9 @@ class CrohmeDataset(Dataset):
             edge_index = torch.tensor([[], []], dtype=torch.long)
             edge_attr = torch.zeros((0, self.edge_features), dtype=torch.float)
 
-        return x, edge_index, edge_attr
+        return x, edge_index, edge_attr, components
 
-    def get_tgt_item(self, inkml_path):
+    def get_tgt_item(self, image_path, inkml_path, los_components=None):
         # extract ground truth latex sentence from inkml
         gt_latex = self.get_latex_from_inkml(inkml_path)
         gt_latex = LatexVocab.split_to_tokens(gt_latex)
@@ -155,7 +156,7 @@ class CrohmeDataset(Dataset):
         gt = torch.tensor(gt_latex_tokens.ids, dtype=torch.long)
 
         # build target symbol layout tree
-        tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, gt_from_mathml = self.get_slt(inkml_path)
+        tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, gt_from_mathml, attn_gt = self.get_slt(image_path, inkml_path, los_components)
 
         tgt_y = torch.tensor(tgt_y, dtype=torch.long)
         tgt_edge_index = torch.tensor(tgt_edge_index, dtype=torch.long)
@@ -167,7 +168,9 @@ class CrohmeDataset(Dataset):
         gt_from_mathml = self.tokenizer.encode(gt_from_mathml)
         gt_from_mathml = torch.tensor(gt_from_mathml.ids, dtype=torch.long)
 
-        return gt, gt_from_mathml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation
+        attn_gt = torch.from_numpy(attn_gt)
+
+        return gt, gt_from_mathml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, attn_gt
 
     def add_padding_to_component(self, component):
         # get the bigger of images sizes
@@ -631,13 +634,31 @@ class CrohmeDataset(Dataset):
                 point_coords = trace_def_elem.split(' ')
                 point_coords = [coord.strip() for coord in point_coords]
                 point_coords = list(filter(lambda coords: coords != '', point_coords))
-                point_x = round(float(point_coords[0]))
-                point_y = round(float(point_coords[1]))
+                point_x = float(point_coords[0])
+                point_y = float(point_coords[1])
                 trace_points.append([point_x, point_y])
             traces.append({
                 'id': trace_id,
                 'points': trace_points
             })
+
+        for i, trace in enumerate(traces):
+            min_x = float('inf')
+            min_y = float('inf')
+            max_x = 0
+            max_y = 0
+            for point in trace['points']:
+                min_x = min(min_x, point[0])
+                min_y = min(min_y, point[1])
+                max_x = max(max_x, point[0])
+                max_y = max(max_y, point[1])
+            traces[i]['bbox'] = [
+                (min_x, min_y),
+                (max_x, min_y),
+                (max_x, max_y),
+                (min_x, max_y)
+            ]
+
         return traces
 
     def parse_tracegroups_inkml(self, ns, root):
@@ -663,6 +684,32 @@ class CrohmeDataset(Dataset):
                 'traces': traces_list
             })
         return tracegroups_list
+
+    def get_tracegroups_bboxes(self, traces, tracegroups):
+        for i, tracegroup in enumerate(tracegroups):
+            max_x = 0
+            max_y = 0
+            min_x = float('inf')
+            min_y = float('inf')
+            trace_ids = tracegroup['traces']
+            for trace_id in trace_ids:
+                trace = next((trace for trace in traces if trace['id'] == trace_id), None)
+                if trace is not None:
+                    trace_min_x = min(trace['bbox'][0][0], trace['bbox'][1][0], trace['bbox'][2][0], trace['bbox'][3][0])
+                    trace_max_x = max(trace['bbox'][0][0], trace['bbox'][1][0], trace['bbox'][2][0], trace['bbox'][3][0])
+                    trace_min_y = min(trace['bbox'][0][1], trace['bbox'][1][1], trace['bbox'][2][1], trace['bbox'][3][1])
+                    trace_max_y = max(trace['bbox'][0][1], trace['bbox'][1][1], trace['bbox'][2][1], trace['bbox'][3][1])
+                    max_x = max(max_x, trace_max_x)
+                    min_x = min(min_x, trace_min_x)
+                    max_y = max(max_y, trace_max_y)
+                    min_y = min(min_y, trace_min_y)
+            tracegroups[i]['bbox'] = [
+                (min_x, min_y),
+                (max_x, min_y),
+                (max_x, max_y),
+                (min_x, max_y)
+            ]
+        return tracegroups
 
     def parse_inkml(self, inkml_path):
         if not os.path.isfile(inkml_path) and Path(inkml_path).suffix != '.inkml':
@@ -715,20 +762,117 @@ class CrohmeDataset(Dataset):
 
         # parse trace-groups corresponding to separate symbols
         tracegroups = self.parse_tracegroups_inkml(doc_namespace, root)
+        tracegroups = self.get_tracegroups_bboxes(traces, tracegroups)
 
-        return s, r, seq
+        return s, r, seq, tracegroups
 
-    def get_slt(self, inkml_path):
-        symbols, relations, sequence = self.parse_inkml(inkml_path)
+    def rescale_tracegroup_coordinates(self, image_path, tracegroups):
+        img = cv.imread(image_path)
+        img_shape = img.shape
+        # size of rendered image
+        img_w = img_shape[0]
+        img_h = img_shape[1]
+        # get size image from original traces coordinates
+        traces_max_x = 0
+        traces_max_y = 0
+        traces_min_x = float('inf')
+        traces_min_y = float('inf')
+        for tg in tracegroups:
+            traces_max_x = max(traces_max_x, tg['bbox'][2][0])
+            traces_max_y = max(traces_max_y, tg['bbox'][2][1])
+            traces_min_x = min(traces_min_x, tg['bbox'][0][0])
+            traces_min_y = min(traces_min_y, tg['bbox'][0][1])
+        traces_w = traces_max_x - traces_min_x
+        traces_h = traces_max_y - traces_min_y
+        # traces to image width ration used as scaling coefficient
+        # there is a padding of 0.04*width padding in image
+        # small value is added to prevent division by zero
+        w_ratio = img_w / ((traces_w + traces_w * 0.04) + 0.00001)
+        # expected image height if padding to create square was not added
+        expected_height = traces_h * w_ratio
+        # padding above formula
+        padding_top = (img_h - expected_height) / 2
+        for tg_idx in range(len(tracegroups)):
+            for bb_idx in range(4):
+                # shift formula to coordinate system start (take padding in account)
+                tracegroups[tg_idx]['bbox'][bb_idx] = (
+                    tracegroups[tg_idx]['bbox'][bb_idx][0] - traces_min_x + (traces_w * 0.02),
+                    tracegroups[tg_idx]['bbox'][bb_idx][1] - traces_min_y
+                )
+                # rescale coordinates according to img/traces width ratio and shift vertically to center (padding)
+                tracegroups[tg_idx]['bbox'][bb_idx] = (
+                    round(tracegroups[tg_idx]['bbox'][bb_idx][0] * w_ratio),
+                    round(tracegroups[tg_idx]['bbox'][bb_idx][1] * w_ratio + padding_top)
+                )
+        return tracegroups
+
+    def get_slt(self, image_path, inkml_path, los_components=None):
+        symbols, relations, sequence, tracegroups = self.parse_inkml(inkml_path)
         # symbols = self.symbols_to_commands_if_possible(symbols)
         # tokenize symbols
         x = [[self.tokenizer.encode(s['symbol'], add_special_tokens=False).ids[0]] for s in symbols]
+
+        # construct attention ground-truths to LoS input graph nodes
+        if los_components is None:
+            attn_gt = None
+        else:
+            # img = cv.imread(image_path)
+            # rescale tracegroups coordinates
+            tracegroups = self.rescale_tracegroup_coordinates(image_path, tracegroups)
+            # assign symbols to tracegroups
+            symbols_bbox_polygons = []
+            for symbol in symbols:
+                tg = next((tg for tg in tracegroups if tg['symbol_id'] == symbol['id']), None)
+                if tg is not None:
+                    symbols_bbox_polygons.append(Polygon(tg['bbox']))
+                    # topleft = tg['bbox'][0]
+                    # bottomright = tg['bbox'][2]
+                    # cv.rectangle(img, topleft, bottomright, (255, 0, 0), 1)
+                else:
+                    symbols_bbox_polygons.append(Polygon([(0, 0), (0, 0), (0, 0), (0, 0)]))
+
+            # match most probable symbol to each los component - biggest intersection of bounding boxes
+            los_components_symbols = []
+            for los_component in los_components:
+                los_bbox_polygon = Polygon(los_component['bbox'])
+                # topleft = los_component['bbox'][0]
+                # bottomright = los_component['bbox'][2]
+                # cv.rectangle(img, topleft, bottomright, (0, 255, 0), 1)
+                intersection_areas = []
+                # intersections = []
+                for symbol_polygon in symbols_bbox_polygons:
+                    intersection = los_bbox_polygon.intersection(symbol_polygon)
+                    # intersections.append(intersection)
+                    intersection_areas.append(intersection.area)
+                symbol_id = np.argmax(intersection_areas)
+                los_components_symbols.append(symbol_id)
+                # intersection = intersections[symbol_id]
+                # topleft = (round(intersection.bounds[0]), round(intersection.bounds[1]))
+                # bottomright = (round(intersection.bounds[2]), round(intersection.bounds[3]))
+                # cv.rectangle(img, topleft, bottomright, (0, 0, 255), 1)
+
+            # create symbols-components mapping matrix
+            attn_gt = np.zeros((len(los_components), len(symbols)))
+            for lc_i in range(len(los_components)):
+                attn_gt[lc_i][los_components_symbols[lc_i]] = 1
+            # transpose - symbols dimension first
+            attn_gt = np.transpose(attn_gt)
+            # normalize for symbols (in rows)
+            attn_gt_rows_sum = attn_gt.sum(axis=1)
+            attn_gt_rows_sum[attn_gt_rows_sum<1] = 1
+            attn_gt = attn_gt / attn_gt_rows_sum[:, np.newaxis]
+
+            # plt.imshow(img)
+            # plt.show()
 
         # generate end child nodes
         end_nodes, end_edge_index = self.get_end_child_nodes(len(x))
 
         # append nodes with end children
         x.extend(end_nodes)
+        if attn_gt is not None:
+            end_nodes_attn_gt = np.full((len(end_nodes), len(los_components)), 1 / len(los_components))
+            attn_gt = np.append(attn_gt, end_nodes_attn_gt, 0)
 
         # pad all nodes to max tokens count
         max_tokenized_length = len(max(x, key=lambda i: len(i)))
@@ -772,7 +916,7 @@ class CrohmeDataset(Dataset):
 
         # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation, include_end_nodes=True)
 
-        return x, edge_index, edge_type, edge_relation, sequence
+        return x, edge_index, edge_type, edge_relation, sequence, attn_gt
 
     def get_tree_root(self, edge_index):
         # find the root node as the only one who does not

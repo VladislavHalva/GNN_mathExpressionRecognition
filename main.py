@@ -33,8 +33,8 @@ if __name__ == '__main__':
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     epochs = 150
-    batch_size = 4
-    components_shape = (64, 64)
+    batch_size = 1
+    components_shape = (32, 32)
     edge_features = 19
     enc_in_size = 256
     enc_h_size = 400
@@ -44,7 +44,7 @@ if __name__ == '__main__':
 
     load_model = False
     load_model_path = "checkpoints/"
-    load_model_name = "MER_ne_only_19_256_400_256_simple_22-04-20_00-28-50_final.pth"
+    load_model_name = "MER_ne_only_19_256_400_256_simple_22-04-20_21-42-38_final.pth"
 
     test = False
     train = True
@@ -102,7 +102,6 @@ if __name__ == '__main__':
         model.train()
         for i, data_batch in enumerate(trainloader):
             data_batch = data_batch.to(device)
-
             optimizer.zero_grad()
             out = model(data_batch)
 
@@ -115,13 +114,17 @@ if __name__ == '__main__':
             # calculate additional loss penalizing classification non-end nodes as end nodes
             # loss_end_nodes = loss_termination(out.y_score, out.tgt_y.squeeze(1), end_node_token_id)
 
+            loss_gcn1_alpha = loss_f(out.gcn1_alpha, out.attn_gt)
+            loss_gcn2_alpha = loss_f(out.gcn2_alpha, out.attn_gt)
+            loss_gcn3_alpha = loss_f(out.gcn3_alpha, out.attn_gt)
+
             # calculate loss as cross-entropy on output graph SRT edge type predictions
             tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
             tgt_pc_edge_relation = out.tgt_edge_relation[tgt_edge_pc_indices]
             out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
             loss_out_edge = loss_f(out_pc_edge_relation, tgt_pc_edge_relation)
 
-            loss = loss_out_node + loss_out_edge
+            loss = loss_out_node + loss_out_edge + loss_gcn1_alpha + loss_gcn2_alpha + loss_gcn3_alpha
 
             loss.backward()
             optimizer.step()
@@ -156,13 +159,18 @@ if __name__ == '__main__':
                 # calculate additional loss penalizing classification non-end nodes as end nodes
                 # loss_end_nodes = loss_termination(out.y_score, out.tgt_y.squeeze(1), end_node_token_id)
 
+                # calculate loss for attention to source graph
+                loss_gcn1_alpha = loss_f(out.gcn1_alpha, out.attn_gt)
+                loss_gcn2_alpha = loss_f(out.gcn2_alpha, out.attn_gt)
+                loss_gcn3_alpha = loss_f(out.gcn3_alpha, out.attn_gt)
+
                 # calculate loss as cross-entropy on output graph SRT edge type predictions
                 tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
                 tgt_pc_edge_relation = out.tgt_edge_relation[tgt_edge_pc_indices]
                 out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
                 loss_out_edge = loss_f(out_pc_edge_relation, tgt_pc_edge_relation)
 
-                loss = loss_out_node + loss_out_edge
+                loss = loss_out_node + loss_out_edge + 0.3 * loss_gcn1_alpha + 0.3 * loss_gcn2_alpha + 0.3 * loss_gcn3_alpha
 
                 loss.backward()
 
