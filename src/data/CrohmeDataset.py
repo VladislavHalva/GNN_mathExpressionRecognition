@@ -80,13 +80,13 @@ class CrohmeDataset(Dataset):
                 # get source graph - LoS
                 x, edge_index, edge_attr, los_components = self.get_src_item(image_path)
                 # get tgt graph - SLT, and LaTeX ground-truth
-                gt, gt_ml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, attn_gt = self.get_tgt_item(image_path, inkml_path, los_components)
+                gt, gt_ml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, comp_symbols = self.get_tgt_item(image_path, inkml_path, los_components)
                 # build dataset item
                 data = GPairData(
                     x=x, edge_index=edge_index, edge_attr=edge_attr,
                     gt=gt, gt_ml=gt_ml, tgt_y=tgt_y, tgt_edge_index=tgt_edge_index,
                     tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation,
-                    attn_gt=attn_gt
+                    comp_symbols=comp_symbols
                 )
 
                 if self.tmp_path:
@@ -156,7 +156,7 @@ class CrohmeDataset(Dataset):
         gt = torch.tensor(gt_latex_tokens.ids, dtype=torch.long)
 
         # build target symbol layout tree
-        tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, gt_from_mathml, attn_gt = self.get_slt(image_path, inkml_path, los_components)
+        tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, gt_from_mathml, comp_symbols = self.get_slt(image_path, inkml_path, los_components)
 
         tgt_y = torch.tensor(tgt_y, dtype=torch.long)
         tgt_edge_index = torch.tensor(tgt_edge_index, dtype=torch.long)
@@ -168,9 +168,7 @@ class CrohmeDataset(Dataset):
         gt_from_mathml = self.tokenizer.encode(gt_from_mathml)
         gt_from_mathml = torch.tensor(gt_from_mathml.ids, dtype=torch.long)
 
-        attn_gt = torch.from_numpy(attn_gt)
-
-        return gt, gt_from_mathml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, attn_gt
+        return gt, gt_from_mathml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, comp_symbols
 
     def add_padding_to_component(self, component):
         # get the bigger of images sizes
@@ -814,7 +812,7 @@ class CrohmeDataset(Dataset):
 
         # construct attention ground-truths to LoS input graph nodes
         if los_components is None:
-            attn_gt = None
+            comp_symbols = None
         else:
             # img = cv.imread(image_path)
             # rescale tracegroups coordinates
@@ -850,6 +848,8 @@ class CrohmeDataset(Dataset):
                 # topleft = (round(intersection.bounds[0]), round(intersection.bounds[1]))
                 # bottomright = (round(intersection.bounds[2]), round(intersection.bounds[3]))
                 # cv.rectangle(img, topleft, bottomright, (0, 0, 255), 1)
+
+            comp_symbols = torch.tensor(los_components_symbols, dtype=torch.long)
 
             # create symbols-components mapping matrix
             attn_gt = np.zeros((len(los_components), len(symbols)))
@@ -916,7 +916,7 @@ class CrohmeDataset(Dataset):
 
         # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation, include_end_nodes=True)
 
-        return x, edge_index, edge_type, edge_relation, sequence, attn_gt
+        return x, edge_index, edge_type, edge_relation, sequence, comp_symbols
 
     def get_tree_root(self, edge_index):
         # find the root node as the only one who does not

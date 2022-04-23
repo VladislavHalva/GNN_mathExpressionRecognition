@@ -15,13 +15,12 @@ class GATLayer(MessagePassing):
         self.input_size = input_size
         self.hidden_size = hidden_size
 
-        self.lin_edge_update = Linear(3 * input_size, hidden_size, bias=False, weight_initializer='glorot')
-
         self.lin = Linear(input_size, hidden_size, bias=False, weight_initializer='glorot')
-        self.att = Parameter(torch.Tensor(1, hidden_size))
+        self.att_src = Parameter(torch.Tensor(1, hidden_size))
+        self.att_dst = Parameter(torch.Tensor(1, hidden_size))
 
-        self.lin_edge = Linear(hidden_size, hidden_size, bias=False, weight_initializer='glorot')
-        self.att_edge = Parameter(torch.Tensor(1, hidden_size))
+        self.lin_edge = Linear(2 * input_size + 100, 100, bias=False, weight_initializer='glorot')
+        self.att_edge = Parameter(torch.Tensor(1, 100))
 
         self.bias = Parameter(torch.Tensor(hidden_size))
 
@@ -30,8 +29,8 @@ class GATLayer(MessagePassing):
     def reset_parameters(self):
         self.lin.reset_parameters()
         self.lin_edge.reset_parameters()
-        self.lin_edge_update.reset_parameters()
-        glorot(self.att)
+        glorot(self.att_src)
+        glorot(self.att_dst)
         glorot(self.att_edge)
         zeros(self.bias)
 
@@ -42,7 +41,7 @@ class GATLayer(MessagePassing):
         # add self loops
         edge_index, edge_attr = add_self_loops(
             edge_index, edge_attr,
-            fill_value=torch.zeros(self.input_size, dtype=float),
+            fill_value='mean',
             num_nodes=x.size(0)
         )
         # update edge features
@@ -50,20 +49,21 @@ class GATLayer(MessagePassing):
         # transform input features
         x = self.lin(x)
         # compute node-level attention for input nodes
-        alpha = (x * self.att).sum(dim=-1)
+        alpha_src = (x * self.att_src).sum(dim=-1)
+        alpha_dst = (x * self.att_dst).sum(dim=-1)
         # compute edge attributes lin. transformation
-        alpha_edge = (self.lin_edge(edge_attr) * self.att_edge).sum(dim=-1)
+        alpha_edge = (edge_attr * self.att_edge).sum(dim=-1)
         # propagation
-        out = self.propagate(edge_index, x=x, alpha=alpha, alpha_edge=alpha_edge, size=size)
+        out = self.propagate(edge_index, x=x, alpha_src=alpha_src, alpha_dst=alpha_dst, alpha_edge=alpha_edge, size=size)
         return out, edge_index, edge_attr
 
     def edge_update(self, x_i, x_j, edge_attr):
         concatenated_features = torch.cat((x_i, edge_attr, x_j), dim=-1)
-        return F.leaky_relu(self.lin_edge_update(concatenated_features))
+        return F.leaky_relu(self.lin_edge(concatenated_features))
 
-    def message(self, x_j, alpha_j, alpha_i, alpha_edge, index, ptr, size_i):
+    def message(self, x_j, alpha_src_j, alpha_dst_i, alpha_edge, index, ptr, size_i):
         # sum attention contributions of src and tgt edge node features and edge features
-        alpha = alpha_i + alpha_j + alpha_edge
+        alpha = alpha_dst_i + alpha_src_j + alpha_edge
         # compute node feature update
         alpha = F.leaky_relu(alpha)
         alpha = softmax(alpha, index, ptr, size_i)

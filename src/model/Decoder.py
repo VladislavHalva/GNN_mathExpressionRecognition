@@ -33,7 +33,7 @@ class Decoder(nn.Module):
         self.lin_g_out = Linear(2 * emb_size, len(SrtEdgeTypes))
 
     def forward(self, x, x_batch, tgt_y=None, tgt_edge_index=None, tgt_edge_type=None, tgt_y_batch=None):
-        if self.training or True:
+        if self.training:
             if \
                     not torch.is_tensor(tgt_y) or not torch.is_tensor(tgt_edge_index) or \
                     not torch.is_tensor(tgt_edge_type) or not torch.is_tensor(tgt_y_batch):
