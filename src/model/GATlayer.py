@@ -67,5 +67,5 @@ class GATLayer(MessagePassing):
         # compute node feature update
         alpha = F.leaky_relu(alpha)
         alpha = softmax(alpha, index, ptr, size_i)
-        alpha = F.dropout(alpha, p=0.2, training=self.training)
+        # alpha = F.dropout(alpha, p=0.2, training=self.training)
         return F.leaky_relu(x_j * alpha.unsqueeze(-1))

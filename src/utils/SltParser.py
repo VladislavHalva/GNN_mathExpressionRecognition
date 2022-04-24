@@ -183,6 +183,7 @@ class SltParser:
         # get symbols
         x = x.numpy()
         tokens = [tokenizer.decode([token_id], skip_special_tokens=False) for token_id in x]
+        tokens = np.asarray(tokens)
         return SltParser.slt_to_latex(tokens, edge_relations, edge_index, edge_type)
 
     @staticmethod

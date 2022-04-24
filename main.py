@@ -34,15 +34,17 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape)
     model.eval()
     with torch.no_grad():
         for i, data_batch in enumerate(testloader):
+            data_batch = create_attn_gt(data_batch, end_node_token_id)
             data_batch = data_batch.to(device)
+
             out = model(data_batch)
             if device == torch.device('cuda'):
                 out = out.cpu()
 
-            # print(torch.argmax(out.attn_gt, dim=1))
-            # print(torch.argmax(out.gcn1_alpha, dim=1))
-            # print(torch.argmax(out.gcn2_alpha, dim=1))
-            # print(torch.argmax(out.gcn3_alpha, dim=1))
+            print(out.attn_gt.argmax(dim=-1))
+            print(out.gcn1_alpha.argmax(dim=-1))
+            print(out.gcn2_alpha.argmax(dim=-1))
+            print(out.gcn3_alpha.argmax(dim=-1))
 
             y_pred = F.softmax(out.y_score, dim=1)
             y_pred = torch.argmax(y_pred, dim=1)
@@ -72,22 +74,21 @@ if __name__ == '__main__':
 
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 500
+    epochs = 200
     batch_size = 4
     components_shape = (32, 32)
     edge_features = 19
-    enc_in_size = 256
-    enc_h_size = 400
-    enc_out_size = 256
-    dec_h_size = 256
-    emb_size = 256
+    enc_in_size = 128
+    enc_h_size = 128
+    enc_out_size = 128
+    dec_h_size = 128
+    emb_size = 128
 
-    load_model = False
+    load_model = True
     load_model_path = "checkpoints/"
-    load_model_name = "MER_enc_train_19_256_400_256_simple_22-04-24_00-45-58_final.pth"
+    load_model_name = "MER_enc_train_19_256_400_256_simple_22-04-25_01-05-49_final.pth"
 
     train = True
-    train_sufficient_loss = 0.05
     evaluate = True
     save_run = True
     print_train_info = True
@@ -95,8 +96,8 @@ if __name__ == '__main__':
     # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
     # for training
-    train_images_root = 'assets/crohme/simple/img/'
-    train_inkmls_root = 'assets/crohme/simple/inkml/'
+    train_images_root = 'assets/crohme/tiny_train/img/'
+    train_inkmls_root = 'assets/crohme/tiny_train/inkml/'
     # for test
     test_images_root = 'assets/crohme/simple/img/'
     test_inkmls_root = 'assets/crohme/simple/inkml/'
@@ -124,17 +125,18 @@ if __name__ == '__main__':
         components_shape, edge_features,
         enc_in_size, enc_h_size, enc_out_size, dec_h_size, emb_size,
         vocab_size, end_node_token_id)
+    # torch.nn.utils.clip_grad_norm_(model.parameters(), 4.0)
     model.float()
     if load_model:
         model.load_state_dict(torch.load(os.path.join(load_model_path, load_model_name), map_location=device))
         logging.info(f"Model loaded: {load_model_name}")
     model.to(device)
 
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=0.0003)
     loss_f = nn.CrossEntropyLoss()
 
     now = datetime.datetime.now()
-    model_name = 'MER_enc_train_' + '19_256_400_256_simple' + '_' + now.strftime("%y-%m-%d_%H-%M-%S")
+    model_name = 'MER_enc_train_' + '19_128_tiny' + '_' + now.strftime("%y-%m-%d_%H-%M-%S")
 
     if train:
         logging.info("Training...")
@@ -151,7 +153,7 @@ if __name__ == '__main__':
             if print_train_info:
                 print("EPOCH: " + str(epoch))
 
-            for i, data_batch in (enumerate(trainloader)):
+            for i, data_batch in tqdm(enumerate(trainloader)):
                 data_batch = create_attn_gt(data_batch, end_node_token_id)
                 data_batch = data_batch.to(device)
 
@@ -167,21 +169,14 @@ if __name__ == '__main__':
                 # calculate additional loss penalizing classification non-end nodes as end nodes
                 loss_end_nodes = loss_termination(out.y_score, out.tgt_y.squeeze(1), end_node_token_id)
 
-                x_gt_node = out.attn_gt.t().argmax(dim=-1)
-                x_gt = out.tgt_y[x_gt_node]
-                loss_enc_nodes = F.cross_entropy(out.x_score, x_gt.squeeze(1))
-                # print('loss: ' + str(loss_enc_nodes.item()))
-
-                # if epoch % 20 == 1:
-                #     print('gt: ' + str(x_gt.squeeze(1).tolist()))
-                #     print('pr: ' + str(out.x_score.argmax(dim=1).tolist()))
-                #     print('gt str: ' + tokenizer.decode(x_gt.squeeze(1).tolist()))
-                #     print('pr str: ' + tokenizer.decode(out.x_score.argmax(dim=1).tolist()))
+                x_gt_node = out.attn_gt.argmax(dim=0)
+                x_gt = out.tgt_y[x_gt_node].squeeze(1)
+                loss_enc_nodes = F.cross_entropy(out.x_score, x_gt)
 
                 # calculate loss for attention to source graph
-                loss_gcn1_alpha = loss_f(out.gcn1_alpha, out.attn_gt)
-                loss_gcn2_alpha = loss_f(out.gcn2_alpha, out.attn_gt)
-                loss_gcn3_alpha = loss_f(out.gcn3_alpha, out.attn_gt)
+                loss_gcn1_alpha = F.mse_loss(out.gcn1_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
+                loss_gcn2_alpha = F.mse_loss(out.gcn2_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
+                loss_gcn3_alpha = F.mse_loss(out.gcn3_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
 
                 # calculate loss as cross-entropy on output graph SRT edge type predictions
                 tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
@@ -191,9 +186,8 @@ if __name__ == '__main__':
 
                 # print(f"node: {loss_out_node}, edge: {loss_out_edge}, gcn1: {loss_gcn1_alpha}, gcn2: {loss_gcn2_alpha}, gcn3: {loss_gcn3_alpha}, end: {loss_end_nodes}")
 
-                loss = loss_enc_nodes + loss_out_node + loss_embeds + loss_out_edge + 0.5 * loss_gcn1_alpha + 0.5 * loss_gcn2_alpha + 0.5 * loss_gcn3_alpha + 0.5 * loss_end_nodes
-                # loss = loss_out_node + loss_out_edge
-                # loss = loss_enc_nodes + loss_out_node + loss_out_edge + 0.5 * loss_gcn1_alpha + 0.5 * loss_gcn2_alpha + 0.5 * loss_gcn3_alpha
+                loss = loss_enc_nodes + loss_out_node + loss_embeds + loss_out_edge + 0.99 * loss_gcn1_alpha + 0.99 * loss_gcn2_alpha + 0.99 * loss_gcn3_alpha + 0.5 * loss_end_nodes
+                # loss = loss_enc_nodes
 
                 # print(f"encoder: {loss_enc_nodes}, node: {loss_out_node}, gcn1: {loss_gcn1_alpha}, gcn2: {loss_gcn2_alpha}, gcn3: {loss_gcn3_alpha}, edge: {loss_out_edge}")
 
@@ -217,15 +211,11 @@ if __name__ == '__main__':
                 print(epoch_loss / len(trainset))
             if save_run:
                 writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
-                # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
+                if epoch % 10 == 9:
+                    torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
-            if epoch % 50 == 49:
+            if epoch % 10 == 9:
                 evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape)
-
-            if epoch_loss / len(trainset) < train_sufficient_loss:
-                pass
-                # print("LOSS LOW ENOUGH")
-                # break
 
         if save_run:
             torch.save(model.state_dict(), 'checkpoints/' + model_name + '_final' + '.pth')
