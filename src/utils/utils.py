@@ -1,9 +1,14 @@
 import glob
 import os
+import re
 import shutil
+from itertools import zip_longest
 
 import numpy as np
 import torch
+import torch.nn.functional as F
+
+from src.utils.SltParser import SltParser
 
 
 def cpy_simple_train_gt():
@@ -58,3 +63,43 @@ def create_attn_gt(data_batch, end_node_token_id):
 
     data_batch.attn_gt = attn_gt
     return data_batch
+
+
+def calc_and_print_acc(data, tokenizer, during_training=False):
+    result = {}
+
+    y_pred = torch.argmax(data.y_score, dim=1)
+    y_edge_rel_pred = torch.argmax(data.y_edge_rel_score, dim=1)
+
+    latex = SltParser.slt_to_latex_predictions(tokenizer, y_pred, y_edge_rel_pred, data.y_edge_index, data.y_edge_type)
+    # latex = SltParser.slt_to_latex_predictions(tokenizer, out.tgt_y.squeeze(1), out.tgt_edge_relation, out.tgt_edge_index, out.tgt_edge_type)
+
+    gt_ml = tokenizer.decode(data.gt_ml.tolist())
+    gt_ml = re.sub(' +', ' ', gt_ml)
+
+    # print('GT: ' + tokenizer.decode(data.tgt_y.squeeze(1).tolist()))
+    # print('PR: ' + tokenizer.decode(y_pred.tolist()))
+    # print('GT: ' + gt_ml)
+    # print('PR: ' + latex)
+    # print("\n")
+
+    if during_training:
+        target_tokens = data.tgt_y.squeeze(1)
+        predicted_tokens = y_pred
+        tokens_count = target_tokens.shape[0]
+        correct_tokens_count = torch.sum((target_tokens == predicted_tokens))
+        result['tokens_count'] = tokens_count
+        result['correct_tokens_count'] = correct_tokens_count
+
+    target_string = gt_ml
+    predicted_string = latex
+    symbols_count = 0
+    correct_symbols_count = 0
+    for gt, pred in zip_longest(target_string, predicted_string, fillvalue=None):
+        symbols_count += 1
+        if gt is not None and pred is not None and gt == pred:
+            correct_symbols_count += 1
+    result['symbols_count'] = symbols_count
+    result['correct_symbols_count'] = correct_symbols_count
+
+    return result

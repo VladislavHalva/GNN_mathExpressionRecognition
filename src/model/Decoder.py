@@ -11,10 +11,11 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ModelParamsError import ModelParamsError
 from src.model.GCNDecLayer import GCNDecLayer
+from src.model.GCNDecLayerV2 import GCNDecLayerV2
 
 
 class Decoder(nn.Module):
-    def __init__(self, device, f_size, h_size, emb_size, vocab_size, end_node_token_id):
+    def __init__(self, device, f_size, h_size, emb_size, vocab_size, end_node_token_id, tokenizer):
         super(Decoder, self).__init__()
         self.device = device
         self.f_size = f_size
@@ -23,11 +24,12 @@ class Decoder(nn.Module):
         self.vocab_size = vocab_size
         self.end_node_token_id = end_node_token_id
         self.max_output_graph_size = 70
+        self.tokenizer = tokenizer
 
         self.embeds = nn.Embedding(vocab_size, emb_size)
-        self.gcn1 = GCNDecLayer(device, f_size, emb_size, h_size, is_first=True)
-        self.gcn2 = GCNDecLayer(device, f_size, h_size, h_size, is_first=False)
-        self.gcn3 = GCNDecLayer(device, f_size, h_size, emb_size, is_first=False)
+        self.gcn1 = GCNDecLayerV2(device, f_size, emb_size, h_size, is_first=True)
+        self.gcn2 = GCNDecLayerV2(device, f_size, h_size, h_size, is_first=False)
+        self.gcn3 = GCNDecLayerV2(device, f_size, h_size, emb_size, is_first=False)
 
         self.lin_z_out = Linear(emb_size, vocab_size, bias=True)
         self.lin_g_out = Linear(2 * emb_size, len(SrtEdgeTypes))
@@ -129,9 +131,8 @@ class Decoder(nn.Module):
         # decode new node token and check if end leaf node
         y_new = y[y_new_id]
         y_new = self.lin_z_out(y_new.unsqueeze(0))
-        y_new = F.softmax(y_new, dim=1)
         y_new = y_new.squeeze(0)
-        _, predicted_token = y_new.max(dim=0)
+        predicted_token = y_new.argmax(dim=0)
         predicted_token = predicted_token.item()
         is_leaf = predicted_token == self.end_node_token_id
         nodes_count = y.size(0)

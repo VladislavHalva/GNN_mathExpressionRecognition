@@ -24,16 +24,21 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.model.Model import Model
 from src.utils.SltParser import SltParser
 from src.utils.loss import loss_termination
-from src.utils.utils import cpy_simple_train_gt, create_attn_gt
+from src.utils.utils import cpy_simple_train_gt, create_attn_gt, calc_and_print_acc
 
 
-def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape):
+def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape, during_training=False):
     logging.info("Evaluation...")
     testset = CrohmeDataset(images_root, inkmls_root, tokenizer, components_shape)
     testloader = DataLoader(testset, 1, False, follow_batch=['x', 'tgt_y'])
     model.eval()
+
+    tokens_count = 0
+    correct_tokens_count = 0
+    symbols_count = 0
+    correct_symbols_count = 0
     with torch.no_grad():
-        for i, data_batch in enumerate(testloader):
+        for i, data_batch in tqdm(enumerate(testloader)):
             data_batch = create_attn_gt(data_batch, end_node_token_id)
             data_batch = data_batch.to(device)
 
@@ -41,30 +46,21 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape)
             if device == torch.device('cuda'):
                 out = out.cpu()
 
+            # gcn_alpha_avg = torch.cat(
+            #     (out.gcn1_alpha.unsqueeze(0), out.gcn2_alpha.unsqueeze(0), out.gcn3_alpha.unsqueeze(0)), dim=0)
+            # gcn_alpha_avg = torch.mean(gcn_alpha_avg, dim=0)
             # print(out.attn_gt.argmax(dim=-1))
-            # print(out.gcn1_alpha.argmax(dim=-1))
-            # print(out.gcn2_alpha.argmax(dim=-1))
-            # print(out.gcn3_alpha.argmax(dim=-1))
+            # print(gcn_alpha_avg.argmax(dim=-1))
 
-            y_pred = F.softmax(out.y_score, dim=1)
-            y_pred = torch.argmax(y_pred, dim=1)
-            y_edge_rel_pred = F.softmax(out.y_edge_rel_score, dim=1)
-            y_edge_rel_pred = torch.argmax(y_edge_rel_pred, dim=1)
+            acc = calc_and_print_acc(out, tokenizer, during_training)
+            if during_training:
+                tokens_count += acc['tokens_count']
+                correct_tokens_count += acc['correct_tokens_count']
+            symbols_count += acc['symbols_count']
+            correct_symbols_count += acc['correct_symbols_count']
 
-            latex = SltParser.slt_to_latex_predictions(tokenizer, y_pred, y_edge_rel_pred, out.y_edge_index,
-                                                       out.y_edge_type)
-            # latex = SltParser.slt_to_latex_predictions(tokenizer, out.tgt_y.squeeze(1), out.tgt_edge_relation, out.tgt_edge_index, out.tgt_edge_type)
-
-            # print(y_pred)
-            print('GT: ' + tokenizer.decode(out.tgt_y.squeeze(1).tolist()))
-            print('PR: ' + tokenizer.decode(y_pred.tolist()))
-            gt_ml = tokenizer.decode(out.gt_ml.tolist())
-            gt_ml = re.sub(' +', ' ', gt_ml)
-            print('GT: ' + gt_ml)
-            print('PR: ' + latex)
-            # print('nodes count: ' + str(out.y_score.shape[0]))
-            # print('edges count: ' + str(out.y_edge_rel_score.shape[0]))
-            print("\n")
+    print(f"tok acc: {correct_tokens_count/tokens_count:.5f} = {correct_tokens_count} / {tokens_count}")
+    print(f"sym acc: {correct_symbols_count/symbols_count:.5f} = {correct_symbols_count} / {symbols_count}")
     model.train()
 
 
@@ -74,7 +70,7 @@ if __name__ == '__main__':
 
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 400
+    epochs = 300
     batch_size = 4
     components_shape = (32, 32)
     edge_features = 19
@@ -84,11 +80,11 @@ if __name__ == '__main__':
     dec_h_size = 256
     emb_size = 256
 
-    load_model = False
+    load_model = True
     load_model_path = "checkpoints/"
-    load_model_name = "MER_enc_train_19_256_400_256_simple_22-04-25_01-05-49_final.pth"
+    load_model_name = "MER_enc_train_19_400_256_simple_22-04-25_22-08-36_final.pth"
 
-    train = True
+    train = False
     evaluate = True
     save_run = True
     print_train_info = True
@@ -124,7 +120,7 @@ if __name__ == '__main__':
         device,
         components_shape, edge_features,
         enc_in_size, enc_h_size, enc_out_size, dec_h_size, emb_size,
-        vocab_size, end_node_token_id)
+        vocab_size, end_node_token_id, tokenizer)
     # torch.nn.utils.clip_grad_norm_(model.parameters(), 4.0)
     model.float()
     if load_model:
@@ -136,7 +132,7 @@ if __name__ == '__main__':
     loss_f = nn.CrossEntropyLoss()
 
     now = datetime.datetime.now()
-    model_name = 'MER_enc_train_' + '19_400_256_simple' + '_' + now.strftime("%y-%m-%d_%H-%M-%S")
+    model_name = 'MER_' + '19_400_256_tiny' + '_' + now.strftime("%y-%m-%d_%H-%M-%S")
 
     if train:
         logging.info("Training...")
@@ -173,10 +169,14 @@ if __name__ == '__main__':
                 x_gt = out.tgt_y[x_gt_node].squeeze(1)
                 loss_enc_nodes = F.cross_entropy(out.x_score, x_gt)
 
-                # calculate loss for attention to source graph
-                loss_gcn1_alpha = F.mse_loss(out.gcn1_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
-                loss_gcn2_alpha = F.mse_loss(out.gcn2_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
-                loss_gcn3_alpha = F.mse_loss(out.gcn3_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
+                # 1) calculate loss for attention to source graph - separate
+                # loss_gcn1_alpha = F.mse_loss(out.gcn1_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
+                # loss_gcn2_alpha = F.mse_loss(out.gcn2_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
+                # loss_gcn3_alpha = F.mse_loss(out.gcn3_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
+                # 2) calculate loss for attention to source graph - average
+                gcn_alpha_avg = torch.cat((out.gcn1_alpha.unsqueeze(0), out.gcn2_alpha.unsqueeze(0), out.gcn3_alpha.unsqueeze(0)), dim=0)
+                gcn_alpha_avg = torch.mean(gcn_alpha_avg, dim=0)
+                loss_gcn_alpha_avg = F.mse_loss(gcn_alpha_avg.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
 
                 # calculate loss as cross-entropy on output graph SRT edge type predictions
                 tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
@@ -184,12 +184,7 @@ if __name__ == '__main__':
                 out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
                 loss_out_edge = loss_f(out_pc_edge_relation, tgt_pc_edge_relation)
 
-                # print(f"node: {loss_out_node}, edge: {loss_out_edge}, gcn1: {loss_gcn1_alpha}, gcn2: {loss_gcn2_alpha}, gcn3: {loss_gcn3_alpha}, end: {loss_end_nodes}")
-
-                loss = loss_enc_nodes + loss_out_node + loss_embeds + loss_out_edge + 0.99 * loss_gcn1_alpha + 0.99 * loss_gcn2_alpha + 0.99 * loss_gcn3_alpha + 0.5 * loss_end_nodes
-                # loss = loss_enc_nodes
-
-                # print(f"encoder: {loss_enc_nodes}, node: {loss_out_node}, gcn1: {loss_gcn1_alpha}, gcn2: {loss_gcn2_alpha}, gcn3: {loss_gcn3_alpha}, edge: {loss_out_edge}")
+                loss = loss_out_node + loss_out_edge + 0.3 * loss_gcn_alpha_avg + 0.5 * loss_end_nodes + 0.5 * loss_enc_nodes
 
                 loss.backward()
 
@@ -212,14 +207,15 @@ if __name__ == '__main__':
             if save_run:
                 writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
                 if epoch % 50 == 49:
-                    torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
+                    pass
+                    # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
             if epoch % 20 == 19:
-                evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape)
+                evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape, True)
 
         if save_run:
             torch.save(model.state_dict(), 'checkpoints/' + model_name + '_final' + '.pth')
             logging.info("Model final state saved")
 
     if evaluate:
-        evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape)
+        evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape, False)
