@@ -41,10 +41,10 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape)
             if device == torch.device('cuda'):
                 out = out.cpu()
 
-            print(out.attn_gt.argmax(dim=-1))
-            print(out.gcn1_alpha.argmax(dim=-1))
-            print(out.gcn2_alpha.argmax(dim=-1))
-            print(out.gcn3_alpha.argmax(dim=-1))
+            # print(out.attn_gt.argmax(dim=-1))
+            # print(out.gcn1_alpha.argmax(dim=-1))
+            # print(out.gcn2_alpha.argmax(dim=-1))
+            # print(out.gcn3_alpha.argmax(dim=-1))
 
             y_pred = F.softmax(out.y_score, dim=1)
             y_pred = torch.argmax(y_pred, dim=1)
@@ -74,17 +74,17 @@ if __name__ == '__main__':
 
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 200
+    epochs = 400
     batch_size = 4
     components_shape = (32, 32)
     edge_features = 19
-    enc_in_size = 128
-    enc_h_size = 128
-    enc_out_size = 128
-    dec_h_size = 128
-    emb_size = 128
+    enc_in_size = 400
+    enc_h_size = 256
+    enc_out_size = 256
+    dec_h_size = 256
+    emb_size = 256
 
-    load_model = True
+    load_model = False
     load_model_path = "checkpoints/"
     load_model_name = "MER_enc_train_19_256_400_256_simple_22-04-25_01-05-49_final.pth"
 
@@ -96,8 +96,8 @@ if __name__ == '__main__':
     # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
     # for training
-    train_images_root = 'assets/crohme/tiny_train/img/'
-    train_inkmls_root = 'assets/crohme/tiny_train/inkml/'
+    train_images_root = 'assets/crohme/simple/img/'
+    train_inkmls_root = 'assets/crohme/simple/inkml/'
     # for test
     test_images_root = 'assets/crohme/simple/img/'
     test_inkmls_root = 'assets/crohme/simple/inkml/'
@@ -136,7 +136,7 @@ if __name__ == '__main__':
     loss_f = nn.CrossEntropyLoss()
 
     now = datetime.datetime.now()
-    model_name = 'MER_enc_train_' + '19_128_tiny' + '_' + now.strftime("%y-%m-%d_%H-%M-%S")
+    model_name = 'MER_enc_train_' + '19_400_256_simple' + '_' + now.strftime("%y-%m-%d_%H-%M-%S")
 
     if train:
         logging.info("Training...")
@@ -211,10 +211,10 @@ if __name__ == '__main__':
                 print(epoch_loss / len(trainset))
             if save_run:
                 writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
-                if epoch % 10 == 9:
+                if epoch % 50 == 49:
                     torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
-            if epoch % 10 == 9:
+            if epoch % 20 == 19:
                 evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape)
 
         if save_run:
