@@ -11,7 +11,6 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ModelParamsError import ModelParamsError
 from src.model.GCNDecLayer import GCNDecLayer
-from src.model.GCNDecLayerV2 import GCNDecLayerV2
 
 
 class Decoder(nn.Module):
@@ -27,9 +26,9 @@ class Decoder(nn.Module):
         self.tokenizer = tokenizer
 
         self.embeds = nn.Embedding(vocab_size, emb_size)
-        self.gcn1 = GCNDecLayerV2(device, f_size, emb_size, h_size, is_first=True)
-        self.gcn2 = GCNDecLayerV2(device, f_size, h_size, h_size, is_first=False)
-        self.gcn3 = GCNDecLayerV2(device, f_size, h_size, emb_size, is_first=False)
+        self.gcn1 = GCNDecLayer(device, f_size, emb_size, h_size, is_first=True)
+        self.gcn2 = GCNDecLayer(device, f_size, h_size, h_size, is_first=False)
+        self.gcn3 = GCNDecLayer(device, f_size, h_size, emb_size, is_first=False)
 
         self.lin_z_out = Linear(emb_size, vocab_size, bias=True)
         self.lin_g_out = Linear(2 * emb_size, len(SrtEdgeTypes))
