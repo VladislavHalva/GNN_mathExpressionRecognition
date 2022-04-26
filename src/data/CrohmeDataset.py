@@ -808,7 +808,9 @@ class CrohmeDataset(Dataset):
         symbols, relations, sequence, tracegroups = self.parse_inkml(inkml_path)
         # symbols = self.symbols_to_commands_if_possible(symbols)
         # tokenize symbols
-        x = [[self.tokenizer.encode(s['symbol'], add_special_tokens=False).ids[0]] for s in symbols]
+        unk_token_id = self.tokenizer.encode('[UNK]', add_special_tokens=False).ids[0]
+        x = [self.tokenizer.encode(s['symbol'], add_special_tokens=False).ids for s in symbols]
+        x = [x_i[0] if len(x_i) == 1 else unk_token_id for x_i in x]
 
         # construct attention ground-truths to LoS input graph nodes
         if los_components is None:
@@ -874,10 +876,11 @@ class CrohmeDataset(Dataset):
             end_nodes_attn_gt = np.full((len(end_nodes), len(los_components)), 1 / len(los_components))
             attn_gt = np.append(attn_gt, end_nodes_attn_gt, 0)
 
+        # UNNECESSARY - now only one token per node or [UNK]
         # pad all nodes to max tokens count
-        max_tokenized_length = len(max(x, key=lambda i: len(i)))
-        pad_token_id = self.tokenizer.encode('[PAD]', add_special_tokens=False).ids[0]
-        x = [el + [pad_token_id] * (max_tokenized_length - len(el)) for el in x]
+        # max_tokenized_length = len(max(x, key=lambda i: len(i)))
+        # pad_token_id = self.tokenizer.encode('[PAD]', add_special_tokens=False).ids[0]
+        # x = [el + [pad_token_id] * (max_tokenized_length - len(el)) for el in x]
 
         edge_index = []
         edge_type = []
@@ -936,7 +939,7 @@ class CrohmeDataset(Dataset):
         return root
 
     def get_end_child_nodes(self, nodes_count):
-        eos_token_id = self.tokenizer.encode('[EOS]', add_special_tokens=False).ids
+        eos_token_id = self.tokenizer.encode('[EOS]', add_special_tokens=False).ids[0]
         end_nodes = [eos_token_id for _ in range(nodes_count)]
         end_edge_index = [[i, nodes_count + i] for i in range(nodes_count)]
         return end_nodes, end_edge_index

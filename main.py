@@ -21,6 +21,7 @@ import datetime
 from src.data.CrohmeDataset import CrohmeDataset
 from src.data.LatexVocab import LatexVocab
 from src.definitions.SltEdgeTypes import SltEdgeTypes
+from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.model.Model import Model
 from src.utils.SltParser import SltParser
 from src.utils.loss import loss_termination
@@ -37,8 +38,10 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape,
     correct_tokens_count = 0
     symbols_count = 0
     correct_symbols_count = 0
+    edges_count = 0
+    correct_edges_count = 0
     with torch.no_grad():
-        for i, data_batch in tqdm(enumerate(testloader)):
+        for i, data_batch in enumerate(testloader):
             data_batch = create_attn_gt(data_batch, end_node_token_id)
             data_batch = data_batch.to(device)
 
@@ -56,11 +59,21 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape,
             if during_training:
                 tokens_count += acc['tokens_count']
                 correct_tokens_count += acc['correct_tokens_count']
+                edges_count += acc['edges_count']
+                correct_edges_count += acc['correct_edges_count']
             symbols_count += acc['symbols_count']
             correct_symbols_count += acc['correct_symbols_count']
 
-    print(f"tok acc: {correct_tokens_count/tokens_count:.5f} = {correct_tokens_count} / {tokens_count}")
-    print(f"sym acc: {correct_symbols_count/symbols_count:.5f} = {correct_symbols_count} / {symbols_count}")
+    if during_training:
+        tokens_acc = correct_tokens_count / tokens_count if tokens_count > 0 else 0
+        print(f"tok acc: {tokens_acc:.5f} = {correct_tokens_count} / {tokens_count}")
+
+        edges_acc = correct_edges_count / edges_count if edges_count > 0 else 0
+        print(f"edg acc: {edges_acc:.5f} = {correct_edges_count} / {edges_count}")
+
+    symbols_acc = correct_symbols_count / symbols_count if symbols_count > 0 else 0
+    print(f"sym acc: {symbols_acc:.5f} = {correct_symbols_count} / {symbols_count}")
+
     model.train()
 
 
@@ -82,7 +95,7 @@ if __name__ == '__main__':
 
     load_model = True
     load_model_path = "checkpoints/"
-    load_model_name = "MER_enc_train_19_400_256_simple_22-04-25_22-08-36_final.pth"
+    load_model_name = "trained_on_tiny.pth"
 
     train = False
     evaluate = True
@@ -157,16 +170,16 @@ if __name__ == '__main__':
                 out = model(data_batch)
 
                 # calculate loss as cross-entropy on output graph node predictions
-                loss_out_node = loss_f(out.y_score, out.tgt_y.squeeze(1))
+                loss_out_node = loss_f(out.y_score, out.tgt_y)
 
                 # calculate loss as cross-entropy on decoder embeddings
-                loss_embeds = loss_f(out.embeds, out.tgt_y.squeeze(1))
+                loss_embeds = loss_f(out.embeds, out.tgt_y)
 
                 # calculate additional loss penalizing classification non-end nodes as end nodes
-                loss_end_nodes = loss_termination(out.y_score, out.tgt_y.squeeze(1), end_node_token_id)
+                loss_end_nodes = loss_termination(out.y_score, out.tgt_y, end_node_token_id)
 
                 x_gt_node = out.attn_gt.argmax(dim=0)
-                x_gt = out.tgt_y[x_gt_node].squeeze(1)
+                x_gt = out.tgt_y[x_gt_node]
                 loss_enc_nodes = F.cross_entropy(out.x_score, x_gt)
 
                 # 1) calculate loss for attention to source graph - separate

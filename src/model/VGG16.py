@@ -67,8 +67,8 @@ class VGG16(nn.Module):
         # x = self.maxpool(x)
         x = x.reshape(x.shape[0], -1)
         x = F.relu(self.fc1(x))
-        x = F.dropout(x, 0.2)
+        x = F.dropout(x, 0.2, training=self.training)
         x = F.relu(self.fc2(x))
-        x = F.dropout(x, 0.2)
+        x = F.dropout(x, 0.2, training=self.training)
         x = self.fc3(x)
         return x

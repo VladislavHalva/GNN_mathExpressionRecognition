@@ -34,15 +34,16 @@ class Decoder(nn.Module):
         self.lin_g_out = Linear(2 * emb_size, len(SrtEdgeTypes))
 
     def forward(self, x, x_batch, tgt_y=None, tgt_edge_index=None, tgt_edge_type=None, tgt_y_batch=None):
-        if self.training or True:
+        if self.training:
             if \
                     not torch.is_tensor(tgt_y) or not torch.is_tensor(tgt_edge_index) or \
                     not torch.is_tensor(tgt_edge_type) or not torch.is_tensor(tgt_y_batch):
                 raise ModelParamsError('ground truth SLT graph missing while training')
             # create tgt nodes embeddings
-            y = self.embeds(tgt_y)
-            # sums token embeddings to one in case of multiple tokens per node
+            y = self.embeds(tgt_y.unsqueeze(1))
+            # remove dimension added by embedding layer
             y = y.squeeze(1)
+            print(torch.sum(y[0]))
             # copy embeds for loss
             # embeds = None
             embeds = self.lin_z_out(y)
@@ -59,7 +60,7 @@ class Decoder(nn.Module):
             gcn3_alpha = self.gcn3.alpha_values
         else:
             embeds = None
-            y, y_edge_index, y_edge_type = self.generate_output_graph(x)
+            y, y_edge_index, y_edge_type = self.gen_graph(x)
             gcn1_alpha, gcn2_alpha, gcn3_alpha = None, None, None
 
         # predictions for nodes from output graph
@@ -71,79 +72,58 @@ class Decoder(nn.Module):
         y_edge_rel_score = self.lin_g_out(y_edge_features)
         return y, y_edge_index, y_edge_type, y_score, y_edge_rel_score, embeds, gcn1_alpha, gcn2_alpha, gcn3_alpha
 
-    def generate_output_graph(self, x):
-        y = torch.zeros(0, dtype=torch.float).to(self.device)
+    def gen_graph(self, x):
+        # holds the state of graph nodes as it should look before gcn processing
+        y_init = torch.tensor([], dtype=torch.float).to(self.device)
+        # holds the state of graph nodes as it should look after gcn processing
+        y = torch.tensor([], dtype=torch.float).to(self.device)
         y_eindex = torch.tensor([[], []], dtype=torch.long).to(self.device)
         y_etype = torch.zeros(0, dtype=torch.long).to(self.device)
-        y, y_eindex, y_etype, _, _ = self.generate_output_subtree(x, y, y_eindex, y_etype, None, None, None)
+        y_init, y, y_eindex, y_etype, _, _ = self.gen_subtree(x, y_init, y, y_eindex, y_etype, None, None, None)
         return y, y_eindex, y_etype
 
-    def append_edge_with_type(self, e_index, e_type, src_id, tgt_id, etype):
-        new_edge = torch.tensor([[src_id], [tgt_id]], dtype=torch.long).to(self.device)
-        new_etype = torch.tensor([etype], dtype=torch.long).to(self.device)
-        e_index = torch.cat([e_index, new_edge], dim=1)
-        e_type = torch.cat([e_type, new_etype], dim=0)
-        return e_index, e_type
+    def create_edge(self, y_eindex, y_etype, src_id, tgt_id, etype):
+        edge = torch.tensor([[src_id], [tgt_id]], dtype=torch.long).to(self.device)
+        edge_type = torch.tensor([etype], dtype=torch.long).to(self.device)
+        y_eindex = torch.cat([y_eindex, edge], dim=1)
+        y_etype = torch.cat([y_etype, edge_type], dim=0)
+        return y_eindex, y_etype
 
-    def generate_output_subtree(self, x, y, y_eindex, y_etype, pa_id, gp_id, ls_id):
-        # generate new node and add it to graph nodes
-
-        nodes_count = y.size(0)
-        y_new_id = nodes_count
-        y_new = torch.zeros((1, self.emb_size), dtype=torch.float).to(self.device)
-        y = torch.cat([y, y_new], dim=0)
-
-        # connect new node to existing graph with edges
-        y_eindex, y_etype = self.append_edge_with_type(y_eindex, y_etype, y_new_id, y_new_id,
-                                                       SltEdgeTypes.CURRENT_CURRENT)
+    def gen_subtree(self, x, y_init, y, y_eindex, y_etype, pa_id, gp_id, ls_id):
+        # create new node
+        i = y.shape[0]
+        y_i = torch.zeros((1, self.emb_size), dtype=torch.float).to(self.device)
+        y_init = torch.cat([y_init, y_i], dim=0)
+        y = torch.cat([y, y_i], dim=0)
+        # connect node to graph
+        y_eindex, y_etype = self.create_edge(y_eindex, y_etype, i, i, SltEdgeTypes.CURRENT_CURRENT)
         if pa_id is not None:
-            y_eindex, y_etype = self.append_edge_with_type(y_eindex, y_etype, pa_id, y_new_id,
-                                                           SltEdgeTypes.PARENT_CHILD)
+            y_eindex, y_etype = self.create_edge(y_eindex, y_etype, pa_id, i, SltEdgeTypes.PARENT_CHILD)
         if gp_id is not None:
-            y_eindex, y_etype = self.append_edge_with_type(y_eindex, y_etype, gp_id, y_new_id,
-                                                           SltEdgeTypes.GRANDPARENT_GRANDCHILD)
+            y_eindex, y_etype = self.create_edge(y_eindex, y_etype, gp_id, i, SltEdgeTypes.GRANDPARENT_GRANDCHILD)
         if ls_id is not None:
-            y_eindex, y_etype = self.append_edge_with_type(y_eindex, y_etype, ls_id, y_new_id,
-                                                           SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER)
-
-        # run through graph convolutional layers
-        x_batch = torch.zeros(x.size(0), dtype=torch.long).to(self.device)
-        y_batch = torch.zeros(y.size(0), dtype=torch.long).to(self.device)
-        y_modified = torch.clone(y)
-        y_modified = self.gcn1(x, y_modified, y_eindex, y_etype, x_batch, y_batch)
-        y_modified = self.gcn2(x, y_modified, y_eindex, y_etype, x_batch, y_batch)
-        y_modified = self.gcn3(x, y_modified, y_eindex, y_etype, x_batch, y_batch)
-
-        # update feature for the newly generated node
-        # create update and preserve masks
-        update_mask = torch.zeros(y.size(0), dtype=torch.long).to(self.device)
-        preserve_mask = torch.ones(y.size(0), dtype=torch.long).to(self.device)
-        update_mask[y_new_id] = 1
-        preserve_mask[y_new_id] = 0
-        update_mask = update_mask.unsqueeze(1)
-        preserve_mask = preserve_mask.unsqueeze(1)
-        # mask features in either old or new values and merge them (sum - each feature vector is zeros in one of the tensors)
-        y = y * preserve_mask
-        y_modified = y_modified * update_mask
-        y = y + y_modified
-
-        # decode new node token and check if end leaf node
-        y_new = y[y_new_id]
-        y_new = self.lin_z_out(y_new.unsqueeze(0))
-        y_new = y_new.squeeze(0)
-        predicted_token = y_new.argmax(dim=0)
-        predicted_token = predicted_token.item()
-        is_leaf = predicted_token == self.end_node_token_id
-        nodes_count = y.size(0)
-
-        if not is_leaf and nodes_count < self.max_output_graph_size:
-            # if generated node is not end leaf node - generate subtree
-            ls_id = None
-            sublevel_leaf_generated = False
-            while not sublevel_leaf_generated and nodes_count < self.max_output_graph_size:
-                # keep generating sub-level nodes (and their subtrees) until direct child end leaf node is generated
-                y, y_eindex, y_etype, ls_id, sublevel_leaf_generated = \
-                    self.generate_output_subtree(x, y, y_eindex, y_etype, y_new_id, pa_id, ls_id)
-                nodes_count = y.size(0)
-
-        return y, y_eindex, y_etype, y_new_id, is_leaf
+            y_eindex, y_etype = self.create_edge(y_eindex, y_etype, ls_id, i, SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER)
+        # lets say that everything belongs to one batch
+        x_batch = torch.zeros(x.shape[0], dtype=torch.long).to(self.device)
+        y_batch = torch.zeros(y.shape[0], dtype=torch.long).to(self.device)
+        # process with GCNs
+        y_processed = torch.clone(y_init)
+        y_processed = self.gcn1(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
+        y_processed = self.gcn2(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
+        y_processed = self.gcn3(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
+        # update value only for newly created node
+        y[i] = y_processed[i]        # decode newly generated node
+        y_i_score = self.lin_z_out(y[i].unsqueeze(0))
+        y_i_token = y_i_score.squeeze(0).argmax(dim=0)
+        y_i_embed = self.embeds(y_i_token.unsqueeze(0).unsqueeze(0))
+        y_init[i] = y_i_embed.squeeze(0).squeeze(0)
+        if y_i_token == self.end_node_token_id:
+            # if node is end leaf stop subtree and return (with True for "most recent is end-leaf")
+            return y_init, y, y_eindex, y_etype, i, True
+        else:
+            subl_ls_id = None
+            subl_end = False
+            while not subl_end:
+                # generate sublevel with subtree for each node, until end node is generated
+                y_init, y, y_eindex, y_etype, subl_ls_id, subl_end = self.gen_subtree(x, y_init, y, y_eindex, y_etype, i, pa_id, subl_ls_id)
+            return y_init, y, y_eindex, y_etype, i, False
