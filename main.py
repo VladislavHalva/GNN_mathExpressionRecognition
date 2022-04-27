@@ -31,7 +31,7 @@ from src.utils.utils import cpy_simple_train_gt, create_attn_gt, calc_and_print_
 def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape, during_training=False):
     logging.info("Evaluation...")
     testset = CrohmeDataset(images_root, inkmls_root, tokenizer, components_shape)
-    testloader = DataLoader(testset, 1, False, follow_batch=['x', 'tgt_y'])
+    testloader = DataLoader(testset, 2, False, follow_batch=['x', 'tgt_y'])
     model.eval()
 
     tokens_count = 0

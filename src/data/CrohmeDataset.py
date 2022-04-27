@@ -53,7 +53,8 @@ class CrohmeDataset(Dataset):
 
                     inkml_file = file_name + '.inkml'
                     inkml_path = os.path.join(inkmls_root, relative_path, inkml_file)
-                    self.items.append([image_path, inkml_path, file_name])
+                    if os.path.exists(inkml_path):
+                        self.items.append([image_path, inkml_path, file_name])
 
         logging.info(str(len(self.items)) + ' items found')
 
@@ -690,9 +691,11 @@ class CrohmeDataset(Dataset):
             min_x = float('inf')
             min_y = float('inf')
             trace_ids = tracegroup['traces']
+            some_trace_found = False
             for trace_id in trace_ids:
                 trace = next((trace for trace in traces if trace['id'] == trace_id), None)
                 if trace is not None:
+                    some_trace_found = True
                     trace_min_x = min(trace['bbox'][0][0], trace['bbox'][1][0], trace['bbox'][2][0], trace['bbox'][3][0])
                     trace_max_x = max(trace['bbox'][0][0], trace['bbox'][1][0], trace['bbox'][2][0], trace['bbox'][3][0])
                     trace_min_y = min(trace['bbox'][0][1], trace['bbox'][1][1], trace['bbox'][2][1], trace['bbox'][3][1])
@@ -701,12 +704,16 @@ class CrohmeDataset(Dataset):
                     min_x = min(min_x, trace_min_x)
                     max_y = max(max_y, trace_max_y)
                     min_y = min(min_y, trace_min_y)
-            tracegroups[i]['bbox'] = [
-                (min_x, min_y),
-                (max_x, min_y),
-                (max_x, max_y),
-                (min_x, max_y)
-            ]
+
+            if some_trace_found:
+                tracegroups[i]['bbox'] = [
+                    (min_x, min_y),
+                    (max_x, min_y),
+                    (max_x, max_y),
+                    (min_x, max_y)
+                ]
+            else:
+                tracegroups[i]['bbox'] = None
         return tracegroups
 
     def parse_inkml(self, inkml_path):
@@ -776,10 +783,11 @@ class CrohmeDataset(Dataset):
         traces_min_x = float('inf')
         traces_min_y = float('inf')
         for tg in tracegroups:
-            traces_max_x = max(traces_max_x, tg['bbox'][2][0])
-            traces_max_y = max(traces_max_y, tg['bbox'][2][1])
-            traces_min_x = min(traces_min_x, tg['bbox'][0][0])
-            traces_min_y = min(traces_min_y, tg['bbox'][0][1])
+            if tg['bbox'] is not None:
+                traces_max_x = max(traces_max_x, tg['bbox'][2][0])
+                traces_max_y = max(traces_max_y, tg['bbox'][2][1])
+                traces_min_x = min(traces_min_x, tg['bbox'][0][0])
+                traces_min_y = min(traces_min_y, tg['bbox'][0][1])
         traces_w = traces_max_x - traces_min_x
         traces_h = traces_max_y - traces_min_y
         # traces to image width ration used as scaling coefficient
@@ -791,17 +799,18 @@ class CrohmeDataset(Dataset):
         # padding above formula
         padding_top = (img_h - expected_height) / 2
         for tg_idx in range(len(tracegroups)):
-            for bb_idx in range(4):
-                # shift formula to coordinate system start (take padding in account)
-                tracegroups[tg_idx]['bbox'][bb_idx] = (
-                    tracegroups[tg_idx]['bbox'][bb_idx][0] - traces_min_x + (traces_w * 0.02),
-                    tracegroups[tg_idx]['bbox'][bb_idx][1] - traces_min_y
-                )
-                # rescale coordinates according to img/traces width ratio and shift vertically to center (padding)
-                tracegroups[tg_idx]['bbox'][bb_idx] = (
-                    round(tracegroups[tg_idx]['bbox'][bb_idx][0] * w_ratio),
-                    round(tracegroups[tg_idx]['bbox'][bb_idx][1] * w_ratio + padding_top)
-                )
+            if tracegroups[tg_idx]['bbox'] is not None:
+                for bb_idx in range(4):
+                    # shift formula to coordinate system start (take padding in account)
+                    tracegroups[tg_idx]['bbox'][bb_idx] = (
+                        tracegroups[tg_idx]['bbox'][bb_idx][0] - traces_min_x + (traces_w * 0.02),
+                        tracegroups[tg_idx]['bbox'][bb_idx][1] - traces_min_y
+                    )
+                    # rescale coordinates according to img/traces width ratio and shift vertically to center (padding)
+                    tracegroups[tg_idx]['bbox'][bb_idx] = (
+                        round(tracegroups[tg_idx]['bbox'][bb_idx][0] * w_ratio),
+                        round(tracegroups[tg_idx]['bbox'][bb_idx][1] * w_ratio + padding_top)
+                    )
         return tracegroups
 
     def get_slt(self, image_path, inkml_path, los_components=None):
@@ -823,7 +832,7 @@ class CrohmeDataset(Dataset):
             symbols_bbox_polygons = []
             for symbol in symbols:
                 tg = next((tg for tg in tracegroups if tg['symbol_id'] == symbol['id']), None)
-                if tg is not None:
+                if tg is not None and tg['bbox'] is not None:
                     symbols_bbox_polygons.append(Polygon(tg['bbox']))
                     # topleft = tg['bbox'][0]
                     # bottomright = tg['bbox'][2]
