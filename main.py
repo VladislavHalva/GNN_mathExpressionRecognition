@@ -168,9 +168,6 @@ if __name__ == '__main__':
                 # calculate loss as cross-entropy on output graph node predictions
                 loss_out_node = loss_f(out.y_score, out.tgt_y)
 
-                # calculate loss as cross-entropy on decoder embeddings
-                loss_embeds = loss_f(out.embeds, out.tgt_y)
-
                 # calculate additional loss penalizing classification non-end nodes as end nodes
                 loss_end_nodes = loss_termination(out.y_score, out.tgt_y, end_node_token_id)
 
@@ -178,11 +175,7 @@ if __name__ == '__main__':
                 x_gt = out.tgt_y[x_gt_node]
                 loss_enc_nodes = F.cross_entropy(out.x_score, x_gt)
 
-                # 1) calculate loss for attention to source graph - separate
-                # loss_gcn1_alpha = F.mse_loss(out.gcn1_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
-                # loss_gcn2_alpha = F.mse_loss(out.gcn2_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
-                # loss_gcn3_alpha = F.mse_loss(out.gcn3_alpha.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
-                # 2) calculate loss for attention to source graph - average
+                # calculate loss for attention to source graph - average
                 gcn_alpha_avg = torch.cat((out.gcn1_alpha.unsqueeze(0), out.gcn2_alpha.unsqueeze(0), out.gcn3_alpha.unsqueeze(0)), dim=0)
                 gcn_alpha_avg = torch.mean(gcn_alpha_avg, dim=0)
                 loss_gcn_alpha_avg = F.mse_loss(gcn_alpha_avg.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)

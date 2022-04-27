@@ -1,3 +1,5 @@
+from itertools import compress
+
 import networkx as nx
 import torch
 from matplotlib import pyplot as plt
@@ -43,10 +45,6 @@ class Decoder(nn.Module):
             y = self.embeds(tgt_y.unsqueeze(1))
             # remove dimension added by embedding layer
             y = y.squeeze(1)
-            print(torch.sum(y[0]))
-            # copy embeds for loss
-            # embeds = None
-            embeds = self.lin_z_out(y)
             # rename to be consistent with evaluation time
             y_edge_index = tgt_edge_index
             y_edge_type = tgt_edge_type
@@ -59,8 +57,7 @@ class Decoder(nn.Module):
             y = self.gcn3(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
             gcn3_alpha = self.gcn3.alpha_values
         else:
-            embeds = None
-            y, y_edge_index, y_edge_type = self.gen_graph(x)
+            y, y_batch, y_edge_index, y_edge_type = self.gen_graph(x, x_batch)
             gcn1_alpha, gcn2_alpha, gcn3_alpha = None, None, None
 
         # predictions for nodes from output graph
@@ -70,17 +67,22 @@ class Decoder(nn.Module):
         y_edge_features = y_edge_features.flatten(1)
         # predictions for edges from output graph
         y_edge_rel_score = self.lin_g_out(y_edge_features)
-        return y, y_edge_index, y_edge_type, y_score, y_edge_rel_score, embeds, gcn1_alpha, gcn2_alpha, gcn3_alpha
+        return y, y_batch, y_edge_index, y_edge_type, y_score, y_edge_rel_score, gcn1_alpha, gcn2_alpha, gcn3_alpha
 
-    def gen_graph(self, x):
+    def gen_graph(self, x, x_batch):
+        # get batch size to generate all SLT trees at once
+        bs = torch.unique(x_batch).shape[0]
         # holds the state of graph nodes as it should look before gcn processing
         y_init = torch.tensor([], dtype=torch.float).to(self.device)
         # holds the state of graph nodes as it should look after gcn processing
         y = torch.tensor([], dtype=torch.float).to(self.device)
+        y_batch = torch.tensor([], dtype=torch.long).to(self.device)
         y_eindex = torch.tensor([[], []], dtype=torch.long).to(self.device)
         y_etype = torch.zeros(0, dtype=torch.long).to(self.device)
-        y_init, y, y_eindex, y_etype, _, _ = self.gen_subtree(x, y_init, y, y_eindex, y_etype, None, None, None)
-        return y, y_eindex, y_etype
+        pa_ids, gp_ids, ls_ids = [None] * bs, [None] * bs, [None] * bs
+        gen_tree = [True] * bs
+        y_init, y, y_batch, y_eindex, y_etype, _, _ = self.gen_subtree(x, x_batch, y_init, y, y_batch, y_eindex, y_etype, gen_tree, pa_ids, gp_ids, ls_ids)
+        return y, y_batch, y_eindex, y_etype
 
     def create_edge(self, y_eindex, y_etype, src_id, tgt_id, etype):
         edge = torch.tensor([[src_id], [tgt_id]], dtype=torch.long).to(self.device)
@@ -89,41 +91,54 @@ class Decoder(nn.Module):
         y_etype = torch.cat([y_etype, edge_type], dim=0)
         return y_eindex, y_etype
 
-    def gen_subtree(self, x, y_init, y, y_eindex, y_etype, pa_id, gp_id, ls_id):
-        # create new node
-        i = y.shape[0]
-        y_i = torch.zeros((1, self.emb_size), dtype=torch.float).to(self.device)
-        y_init = torch.cat([y_init, y_i], dim=0)
-        y = torch.cat([y, y_i], dim=0)
-        # connect node to graph
-        y_eindex, y_etype = self.create_edge(y_eindex, y_etype, i, i, SltEdgeTypes.CURRENT_CURRENT)
-        if pa_id is not None:
-            y_eindex, y_etype = self.create_edge(y_eindex, y_etype, pa_id, i, SltEdgeTypes.PARENT_CHILD)
-        if gp_id is not None:
-            y_eindex, y_etype = self.create_edge(y_eindex, y_etype, gp_id, i, SltEdgeTypes.GRANDPARENT_GRANDCHILD)
-        if ls_id is not None:
-            y_eindex, y_etype = self.create_edge(y_eindex, y_etype, ls_id, i, SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER)
-        # lets say that everything belongs to one batch
-        x_batch = torch.zeros(x.shape[0], dtype=torch.long).to(self.device)
-        y_batch = torch.zeros(y.shape[0], dtype=torch.long).to(self.device)
+    def gen_subtree(self, x, x_batch, y_init, y, y_batch, y_eindex, y_etype, gen_tree, pa_ids, gp_ids, ls_ids):
+        # create new nodes for each batch that is not finished yet
+        batch_idx_unfinisned = torch.tensor(list(compress(range(len(gen_tree)), gen_tree)), dtype=torch.long).to(self.device)
+        y_new = torch.zeros((len(batch_idx_unfinisned), self.emb_size), dtype=torch.float).to(self.device)
+        y_new_idx = torch.tensor([y.shape[0] + order for order in range(y_new.shape[0])], dtype=torch.long).to(self.device)
+        y_init = torch.cat([y_init, y_new], dim=0)
+        y = torch.cat([y, y_new], dim=0)
+        y_batch = torch.cat([y_batch, batch_idx_unfinisned], dim=0)
+
+        # connect nodes to graph
+        for i, i_batch in enumerate(batch_idx_unfinisned):
+            y_eindex, y_etype = self.create_edge(y_eindex, y_etype, y_new_idx[i], y_new_idx[i], SltEdgeTypes.CURRENT_CURRENT)
+            if pa_ids[i_batch] is not None:
+                y_eindex, y_etype = self.create_edge(y_eindex, y_etype, pa_ids[i_batch], y_new_idx[i], SltEdgeTypes.PARENT_CHILD)
+            if gp_ids[i_batch] is not None:
+                y_eindex, y_etype = self.create_edge(y_eindex, y_etype, gp_ids[i_batch], y_new_idx[i], SltEdgeTypes.GRANDPARENT_GRANDCHILD)
+            if ls_ids[i_batch] is not None:
+                y_eindex, y_etype = self.create_edge(y_eindex, y_etype, ls_ids[i_batch], y_new_idx[i], SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER)
         # process with GCNs
         y_processed = torch.clone(y_init)
         y_processed = self.gcn1(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
         y_processed = self.gcn2(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
         y_processed = self.gcn3(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
         # update value only for newly created node
-        y[i] = y_processed[i]        # decode newly generated node
-        y_i_score = self.lin_z_out(y[i].unsqueeze(0))
-        y_i_token = y_i_score.squeeze(0).argmax(dim=0)
-        y_i_embed = self.embeds(y_i_token.unsqueeze(0).unsqueeze(0))
-        y_init[i] = y_i_embed.squeeze(0).squeeze(0)
-        if y_i_token == self.end_node_token_id:
-            # if node is end leaf stop subtree and return (with True for "most recent is end-leaf")
-            return y_init, y, y_eindex, y_etype, i, True
+        y[y_new_idx] = y_processed[y_new_idx]
+        # decode newly generated node
+        y_new_score = self.lin_z_out(y[y_new_idx])
+        y_new_token = y_new_score.argmax(dim=1)
+        y_new_embed = self.embeds(y_new_token.unsqueeze(1))
+        y_init[y_new_idx] = y_new_embed.squeeze(1)
+        y_new_idx_per_batch = [None] * len(pa_ids)
+        this_leaf = [False] * len(pa_ids)
+        # determine for which batch items the generating process should continue
+        # and create list of current node ids per batch item
+        gen_subtree = list(gen_tree)
+        for i, i_batch in enumerate(batch_idx_unfinisned):
+            if y_new_token[i] == self.end_node_token_id:
+                gen_subtree[i_batch] = False
+                this_leaf[i_batch] = True
+            y_new_idx_per_batch[i_batch] = y_new_idx[i]
+        if not any(gen_subtree):
+            # end leaf node generated for all batch items
+            return y_init, y, y_batch, y_eindex, y_etype, y_new_idx_per_batch, this_leaf
         else:
-            subl_ls_id = None
-            subl_end = False
-            while not subl_end and y.shape[0] <= self.max_output_graph_size:
+            subl_ls_ids = [None] * len(ls_ids)
+            while any(gen_subtree) and torch.max(torch.unique(y_batch, return_counts=True)[1]) <= self.max_output_graph_size:
                 # generate sublevel with subtree for each node, until end node is generated
-                y_init, y, y_eindex, y_etype, subl_ls_id, subl_end = self.gen_subtree(x, y_init, y, y_eindex, y_etype, i, pa_id, subl_ls_id)
-            return y_init, y, y_eindex, y_etype, i, False
+                y_init, y, y_batch, y_eindex, y_etype, subl_ls_ids, last_leaf = \
+                    self.gen_subtree(x, x_batch, y_init, y, y_batch, y_eindex, y_etype, gen_subtree, y_new_idx_per_batch, pa_ids, subl_ls_ids)
+                gen_subtree = [True if gen_subtree_i and not last_leaf[i] else False for i, gen_subtree_i in enumerate(gen_subtree)]
+            return y_init, y, y_batch, y_eindex, y_etype, y_new_idx_per_batch, this_leaf
