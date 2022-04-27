@@ -25,13 +25,13 @@ from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.model.Model import Model
 from src.utils.SltParser import SltParser
 from src.utils.loss import loss_termination
-from src.utils.utils import cpy_simple_train_gt, create_attn_gt, calc_and_print_acc
+from src.utils.utils import cpy_simple_train_gt, create_attn_gt, calc_and_print_acc, split_databatch
 
 
 def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape, during_training=False):
     logging.info("Evaluation...")
     testset = CrohmeDataset(images_root, inkmls_root, tokenizer, components_shape)
-    testloader = DataLoader(testset, 2, False, follow_batch=['x', 'tgt_y'])
+    testloader = DataLoader(testset, 5, False, follow_batch=['x', 'tgt_y', 'gt', 'gt_ml'])
     model.eval()
 
     tokens_count = 0
@@ -49,20 +49,16 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape,
             if device == torch.device('cuda'):
                 out = out.cpu()
 
-            # gcn_alpha_avg = torch.cat(
-            #     (out.gcn1_alpha.unsqueeze(0), out.gcn2_alpha.unsqueeze(0), out.gcn3_alpha.unsqueeze(0)), dim=0)
-            # gcn_alpha_avg = torch.mean(gcn_alpha_avg, dim=0)
-            # print(out.attn_gt.argmax(dim=-1))
-            # print(gcn_alpha_avg.argmax(dim=-1))
-
-            acc = calc_and_print_acc(out, tokenizer, during_training)
-            if during_training:
-                tokens_count += acc['tokens_count']
-                correct_tokens_count += acc['correct_tokens_count']
-                edges_count += acc['edges_count']
-                correct_edges_count += acc['correct_edges_count']
-            symbols_count += acc['symbols_count']
-            correct_symbols_count += acc['correct_symbols_count']
+            out_elems = split_databatch(out)
+            for out_elem in out_elems:
+                acc = calc_and_print_acc(out_elem, tokenizer, during_training)
+                if during_training:
+                    tokens_count += acc['tokens_count']
+                    correct_tokens_count += acc['correct_tokens_count']
+                    edges_count += acc['edges_count']
+                    correct_edges_count += acc['correct_edges_count']
+                symbols_count += acc['symbols_count']
+                correct_symbols_count += acc['correct_symbols_count']
 
     if during_training:
         tokens_acc = correct_tokens_count / tokens_count if tokens_count > 0 else 0

@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from src.data.GPairData import GPairData
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.utils.SltParser import SltParser
 
@@ -73,7 +74,6 @@ def calc_and_print_acc(data, tokenizer, during_training=False):
     y_edge_rel_pred = torch.argmax(data.y_edge_rel_score, dim=1)
 
     latex = SltParser.slt_to_latex_predictions(tokenizer, y_pred, y_edge_rel_pred, data.y_edge_index, data.y_edge_type)
-    # latex = SltParser.slt_to_latex_predictions(tokenizer, out.tgt_y.squeeze(1), out.tgt_edge_relation, out.tgt_edge_index, out.tgt_edge_type)
 
     gt_ml = tokenizer.decode(data.gt_ml.tolist())
     gt_ml = re.sub(' +', ' ', gt_ml)
@@ -113,3 +113,62 @@ def calc_and_print_acc(data, tokenizer, during_training=False):
     result['correct_symbols_count'] = correct_symbols_count
 
     return result
+
+
+def split_databatch(databatch):
+    db = databatch
+    batch_ids = torch.unique(db.x_batch, sorted=True)
+    data_elems = []
+    for batch_id in batch_ids:
+        x_b_ids = (db.x_batch == batch_id).nonzero(as_tuple=True)[0]
+        y_b_ids = (db.y_batch == batch_id).nonzero(as_tuple=True)[0]
+        tgt_y_b_ids = (db.tgt_y_batch == batch_id).nonzero(as_tuple=True)[0]
+        gt_b_ids = (db.gt_batch == batch_id).nonzero(as_tuple=True)[0]
+        gt_ml_b_ids = (db.gt_ml_batch == batch_id).nonzero(as_tuple=True)[0]
+
+        gt_b = db.gt[gt_b_ids]
+        gt_ml_b = db.gt_ml[gt_ml_b_ids]
+
+        x_b = db.x[x_b_ids]
+        comp_symbols_b = db.comp_symbols[x_b_ids]
+        x_score_b = db.x_score[x_b_ids]
+        edge_index_b_ids = [i for i, src in enumerate(db.edge_index[0]) if src in x_b_ids and db.edge_index[1][i] in x_b_ids]
+        edge_index_b = db.edge_index.t()[edge_index_b_ids].t()
+        edge_index_b[0] = (edge_index_b[0].view(-1, 1) == x_b_ids).int().argmax(dim=1)
+        edge_index_b[1] = (edge_index_b[1].view(-1, 1) == x_b_ids).int().argmax(dim=1)
+        edge_attr_b = db.edge_attr[edge_index_b_ids]
+
+        tgt_y_b = db.tgt_y[tgt_y_b_ids]
+        attn_gt_b = db.attn_gt[tgt_y_b_ids]
+        tgt_edge_index_b_ids = [i for i, src in enumerate(db.tgt_edge_index[0]) if src in tgt_y_b_ids and db.tgt_edge_index[1][i] in tgt_y_b_ids]
+        tgt_edge_index_b = db.tgt_edge_index.t()[tgt_edge_index_b_ids].t()
+        tgt_edge_index_b[0] = (tgt_edge_index_b[0].view(-1, 1) == tgt_y_b_ids).int().argmax(dim=1)
+        tgt_edge_index_b[1] = (tgt_edge_index_b[1].view(-1, 1) == tgt_y_b_ids).int().argmax(dim=1)
+        tgt_edge_type_b = db.tgt_edge_type[tgt_edge_index_b_ids]
+        tgt_edge_relation_b = db.tgt_edge_relation[tgt_edge_index_b_ids]
+
+        y_b = db.y[y_b_ids]
+        y_score_b = db.y_score[y_b_ids]
+        y_edge_index_b_ids = [i for i, src in enumerate(db.y_edge_index[0]) if src in y_b_ids and db.y_edge_index[1][i] in y_b_ids]
+        y_edge_index_b = db.y_edge_index.t()[y_edge_index_b_ids].t()
+        y_edge_index_b[0] = (y_edge_index_b[0].view(-1, 1) == y_b_ids).int().argmax(dim=1)
+        y_edge_index_b[1] = (y_edge_index_b[1].view(-1, 1) == y_b_ids).int().argmax(dim=1)
+        y_edge_type_b = db.y_edge_type[y_edge_index_b_ids]
+        y_edge_rel_score_b = db.y_edge_rel_score[y_edge_index_b_ids]
+
+        data_b = GPairData(
+            x=x_b, edge_index=edge_index_b, edge_attr=edge_attr_b,
+            gt=gt_b, gt_ml=gt_ml_b, tgt_y=tgt_y_b, tgt_edge_index=tgt_edge_index_b,
+            tgt_edge_type=tgt_edge_type_b, tgt_edge_relation=tgt_edge_relation_b,
+            comp_symbols=comp_symbols_b
+        )
+        data_b.x_score = x_score_b
+        data_b.attn_gt = attn_gt_b
+        data_b.y = y_b
+        data_b.y_score = y_score_b
+        data_b.y_edge_index = y_edge_index_b
+        data_b.y_edge_type = y_edge_type_b
+        data_b.y_edge_rel_score = y_edge_rel_score_b
+        data_elems.append(data_b)
+
+    return data_elems
