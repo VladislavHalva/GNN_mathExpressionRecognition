@@ -20,7 +20,7 @@ class SltParser:
         targets = np.array(list(set([edge[1] for edge in pc_edge_index if edge[1] < len(tokens)])))
         tokens_ids = np.delete(tokens_ids, targets)
 
-        if tokens_ids.shape[0] == 0 or tokens_ids.shape[0] > 1:
+        if tokens_ids.shape[0] != 1:
             return None
         return tokens_ids[0]
 
@@ -60,7 +60,8 @@ class SltParser:
         # identify child nodes
         children = SltParser.get_children(root_id, pc_edge_index, bb_edge_index)
         # recursion - process child node subtrees
-        children_subtrees = [SltParser.parse_slt_subtree(child['id'], x, pc_edge_index, bb_edge_index, pc_edge_rel) for child in children]
+        children_subtrees = [SltParser.parse_slt_subtree(child['id'], x, pc_edge_index, bb_edge_index, pc_edge_rel) for
+                             child in children]
 
         # separate subtrees based on connection type
         above = [subtree for i, subtree in enumerate(children_subtrees) if
@@ -161,10 +162,17 @@ class SltParser:
         bb_edge_index = np.delete(bb_edge_index, bb_remove_ids, axis=0)
         return pc_edge_index, pc_edge_relations, bb_edge_index
 
-
     @staticmethod
     def remove_nodes(x, x_remove_ids, edge_index1, edge_index2, edge_relations1):
+        # determine how many positions will each of the x-elems move to the left in array
+        x_remove_ids = np.asarray(x_remove_ids, dtype=np.uint)
+        x_shift_positions = np.zeros((len(x)))
+        for i, x_shift_positions_i in enumerate(x_shift_positions):
+            x_shift_positions[i] = (x_remove_ids < i).sum()
+        x_shift_positions = np.asarray(x_shift_positions, dtype=np.uint)
+        # remove nodes
         x = np.delete(x, x_remove_ids)
+        # remove edges that refer from or to a removed node
         edge_index1_r_ids = []
         edge_index2_r_ids = []
         for i, edge in enumerate(edge_index1):
@@ -175,7 +183,12 @@ class SltParser:
                 edge_index2_r_ids.append(i)
         edge_index1 = np.delete(edge_index1, edge_index1_r_ids, axis=0)
         edge_index2 = np.delete(edge_index2, edge_index2_r_ids, axis=0)
+        # remove edge relations belonging to removed edges
         edge_relations1 = np.delete(edge_relations1, edge_index1_r_ids)
+        # shift node indices in edge_index arrays so that they match the x-elems indices after removal
+        shift_indices = lambda x: x - x_shift_positions[x]
+        edge_index1 = shift_indices(edge_index1)
+        edge_index2 = shift_indices(edge_index2)
         return x, edge_index1, edge_index2, edge_relations1
 
     @staticmethod
@@ -187,7 +200,7 @@ class SltParser:
         return SltParser.slt_to_latex(tokens, edge_relations, edge_index, edge_type)
 
     @staticmethod
-    def slt_to_latex(tokens, edge_relations, edge_index, edge_type):
+    def clean_slt(tokens, edge_relations, edge_index, edge_type):
         # keep only parent-child edges
         edge_pc_indices = ((edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
         edge_bb_indices = ((edge_type == SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER).nonzero(as_tuple=True)[0])
@@ -215,9 +228,9 @@ class SltParser:
                 return ""
 
         # remove end leaf nodes
-        # SIMPLE VERSION (PRUNES): end_node_ids = [i for i, token in enumerate(tokens) if token == '[EOS]']
-        # for training time's sake change nodes classified as [EOS] to empty string
-        #   -> will not prune their whole subtree
+        # for training time's sake change nodes classified as [EOS]
+        # that have subtrees (somewhere in the middle of the tree) to empty string
+        # -> will not prune their whole subtree
         src_nodes_ids = [edge[0] for edge in pc_edge_index]
         end_node_ids = []
         for i, token in enumerate(tokens):
@@ -226,12 +239,13 @@ class SltParser:
                     tokens[i] = ''
                 else:
                     end_node_ids.append(i)
+
         tokens, pc_edge_index, bb_edge_index, pc_edge_relations = \
             SltParser.remove_nodes(tokens, end_node_ids, pc_edge_index, bb_edge_index, pc_edge_relations)
 
         # remove nodes not reachable from root
         # Note: matters in training time only - otherwise only end leaf nodes will be removed
-        #       (subtree generation always ends with EOS)
+        # (tree level generation always ends with EOS)
         reachable_node_ids = SltParser.identify_reachable_nodes(tokens, pc_edge_index, bb_edge_index, root_id)
         unreachable_nodes_ids = [token_id for token_id, _ in enumerate(tokens) if token_id not in reachable_node_ids]
         tokens, pc_edge_index, bb_edge_index, pc_edge_relations = \
@@ -239,7 +253,15 @@ class SltParser:
 
         # remove edges implying non-existing nodes (were within the unreachable subtrees)
         pc_edge_index, pc_edge_relations, bb_edge_index = \
-            SltParser.remove_unconnected_edges([i for i in range(len(tokens))], pc_edge_index, pc_edge_relations, bb_edge_index)
+            SltParser.remove_unconnected_edges([i for i in range(len(tokens))], pc_edge_index, pc_edge_relations,
+                                               bb_edge_index)
+
+        return tokens, pc_edge_index, bb_edge_index, pc_edge_relations, root_id
+
+    @staticmethod
+    def slt_to_latex(tokens, edge_relations, edge_index, edge_type):
+        tokens, pc_edge_index, bb_edge_index, pc_edge_relations, root_id = \
+            SltParser.clean_slt(tokens, edge_relations, edge_index, edge_type)
 
         # g = nx.Graph()
         # for edge in pc_edge_index:
