@@ -1,13 +1,7 @@
 from itertools import compress
-
-import networkx as nx
 import torch
-from matplotlib import pyplot as plt
 from torch import nn
 from torch.nn import Linear
-import torch.nn.functional as F
-from torch_geometric.data import Data
-from torch_geometric.utils import to_networkx
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
@@ -136,9 +130,13 @@ class Decoder(nn.Module):
             return y_init, y, y_batch, y_eindex, y_etype, y_new_idx_per_batch, this_leaf
         else:
             subl_ls_ids = [None] * len(ls_ids)
-            while any(gen_subtree) and torch.max(torch.unique(y_batch, return_counts=True)[1]) <= self.max_output_graph_size:
+            while any(gen_subtree):
                 # generate sublevel with subtree for each node, until end node is generated
                 y_init, y, y_batch, y_eindex, y_etype, subl_ls_ids, last_leaf = \
                     self.gen_subtree(x, x_batch, y_init, y, y_batch, y_eindex, y_etype, gen_subtree, y_new_idx_per_batch, pa_ids, subl_ls_ids)
-                gen_subtree = [True if gen_subtree_i and not last_leaf[i] else False for i, gen_subtree_i in enumerate(gen_subtree)]
+                # stop batch items tree generation for those batch items, whose trees reached maximal nodes count
+                batch_items_nodes_counts = torch.unique(y_batch, return_counts=True, sorted=True)[1]
+                batch_items_nodes_limit_reached = (batch_items_nodes_counts > self.max_output_graph_size)
+                # update for which batch items the subtree generation shall continue
+                gen_subtree = [True if gen_subtree_i and not last_leaf[i] and not batch_items_nodes_limit_reached[i] else False for i, gen_subtree_i in enumerate(gen_subtree)]
             return y_init, y, y_batch, y_eindex, y_etype, y_new_idx_per_batch, this_leaf
