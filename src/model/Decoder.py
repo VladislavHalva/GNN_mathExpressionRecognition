@@ -125,6 +125,11 @@ class Decoder(nn.Module):
                 gen_subtree[i_batch] = False
                 this_leaf[i_batch] = True
             y_new_idx_per_batch[i_batch] = y_new_idx[i]
+        # stop batch items tree generation for those batch items, whose trees reached maximal nodes count
+        batch_items_nodes_counts = torch.unique(y_batch, return_counts=True, sorted=True)[1]
+        batch_items_nodes_limit_reached = (batch_items_nodes_counts > self.max_output_graph_size)
+        gen_subtree = [True if gen_subtree_i and not batch_items_nodes_limit_reached[i] else False
+                       for i, gen_subtree_i in enumerate(gen_subtree)]
         if not any(gen_subtree):
             # end leaf node generated for all batch items
             return y_init, y, y_batch, y_eindex, y_etype, y_new_idx_per_batch, this_leaf

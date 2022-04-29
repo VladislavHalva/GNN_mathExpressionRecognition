@@ -27,19 +27,47 @@ from src.utils.SltParser import SltParser
 from src.utils.loss import loss_termination
 from src.utils.utils import cpy_simple_train_gt, create_attn_gt, calc_and_print_acc, split_databatch
 
+def eval_training_batch(data):
+    result = {}
+    y_pred = torch.argmax(data.y_score, dim=1)
+    y_edge_rel_pred = torch.argmax(data.y_edge_rel_score, dim=1)
 
-def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape, during_training=False):
+    target_tokens = data.tgt_y
+    predicted_tokens = y_pred
+    tokens_count = target_tokens.shape[0]
+    correct_tokens_count = torch.sum((target_tokens == predicted_tokens))
+    result['tokens_count'] = tokens_count
+    result['correct_tokens_count'] = correct_tokens_count
+
+    tgt_edge_pc_indices = ((data.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
+    tgt_pc_edge_relation = data.tgt_edge_relation[tgt_edge_pc_indices]
+    out_pc_edge_relation = data.y_edge_rel_score[tgt_edge_pc_indices]
+    out_pc_edge_relation = out_pc_edge_relation.argmax(dim=-1)
+    edges_count = tgt_pc_edge_relation.shape[0]
+    correct_edges_count = torch.sum((tgt_pc_edge_relation == out_pc_edge_relation))
+    result['edges_count'] = edges_count
+    result['correct_edges_count'] = correct_edges_count
+
+    tokens_acc = correct_tokens_count / tokens_count if tokens_count > 0 else 0
+    print(f"tok acc: {tokens_acc:.5f} = {correct_tokens_count} / {tokens_count}")
+
+    edges_acc = correct_edges_count / edges_count if edges_count > 0 else 0
+    print(f"edg acc: {edges_acc:.5f} = {correct_edges_count} / {edges_count}")
+
+    return result
+
+
+def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape):
     logging.info("Evaluation...")
     testset = CrohmeDataset(images_root, inkmls_root, tokenizer, components_shape)
     testloader = DataLoader(testset, 5, False, follow_batch=['x', 'tgt_y', 'gt', 'gt_ml'])
     model.eval()
 
-    tokens_count = 0
-    correct_tokens_count = 0
     symbols_count = 0
     correct_symbols_count = 0
-    edges_count = 0
-    correct_edges_count = 0
+    exact_match = 0
+    exact_match_1 = 0
+    exact_match_2 = 0
     with torch.no_grad():
         for i, data_batch in enumerate(testloader):
             data_batch = create_attn_gt(data_batch, end_node_token_id)
@@ -51,24 +79,17 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape,
 
             out_elems = split_databatch(out)
             for out_elem in out_elems:
-                acc = calc_and_print_acc(out_elem, tokenizer, during_training)
-                if during_training:
-                    tokens_count += acc['tokens_count']
-                    correct_tokens_count += acc['correct_tokens_count']
-                    edges_count += acc['edges_count']
-                    correct_edges_count += acc['correct_edges_count']
+                acc = calc_and_print_acc(out_elem, tokenizer)
                 symbols_count += acc['symbols_count']
                 correct_symbols_count += acc['correct_symbols_count']
-
-    if during_training:
-        tokens_acc = correct_tokens_count / tokens_count if tokens_count > 0 else 0
-        print(f"tok acc: {tokens_acc:.5f} = {correct_tokens_count} / {tokens_count}")
-
-        edges_acc = correct_edges_count / edges_count if edges_count > 0 else 0
-        print(f"edg acc: {edges_acc:.5f} = {correct_edges_count} / {edges_count}")
+                exact_match += 1 if acc['slt_diff']['exact_match'] else 0
+                exact_match_1 += 1 if acc['slt_diff']['exact_match_1'] else 0
+                exact_match_2 += 1 if acc['slt_diff']['exact_match_2'] else 0
 
     symbols_acc = correct_symbols_count / symbols_count if symbols_count > 0 else 0
     print(f"sym acc: {symbols_acc:.5f} = {correct_symbols_count} / {symbols_count}")
+    print(f"e-match: {exact_match}, e-match-1: {exact_match_1}, e-match-2: {exact_match_2}")
+    print(f"e-match: {exact_match/len(testset)}, e-match-1: {exact_match_1/len(testset)}, e-match-2: {exact_match_2/len(testset)}")
 
     model.train()
 
@@ -89,11 +110,11 @@ if __name__ == '__main__':
     dec_h_size = 256
     emb_size = 256
 
-    load_model = True
+    load_model = False
     load_model_path = "checkpoints/"
     load_model_name = "trained_on_tiny.pth"
 
-    train = False
+    train = True
     evaluate = True
     save_run = True
     print_train_info = True
@@ -147,7 +168,7 @@ if __name__ == '__main__':
         logging.info("Training...")
         trainset = CrohmeDataset(train_images_root, train_inkmls_root, tokenizer, components_shape)
 
-        trainloader = DataLoader(trainset, batch_size, True, follow_batch=['x', 'tgt_y'])
+        trainloader = DataLoader(trainset, batch_size, False, follow_batch=['x', 'tgt_y'])
         if save_run:
             writer = SummaryWriter('runs/' + model_name)
 
@@ -193,6 +214,8 @@ if __name__ == '__main__':
                 epoch_loss += loss.item()
                 running_loss += loss.item()
 
+                # eval_res = eval_training_batch(out.detach())
+
                 if save_run:
                     writer.add_scalar('Loss/train', loss.item(), epoch * len(trainloader) + i)
                 if i % 100 == 0 and i != 0:
@@ -213,11 +236,11 @@ if __name__ == '__main__':
                     # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
             if epoch % 20 == 19:
-                evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape, True)
+                evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape)
 
         if save_run:
             torch.save(model.state_dict(), 'checkpoints/' + model_name + '_final' + '.pth')
             logging.info("Model final state saved")
 
     if evaluate:
-        evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape, False)
+        evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape)

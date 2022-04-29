@@ -192,14 +192,6 @@ class SltParser:
         return x, edge_index1, edge_index2, edge_relations1
 
     @staticmethod
-    def slt_to_latex_predictions(tokenizer, x, edge_relations, edge_index, edge_type):
-        # get symbols
-        x = x.numpy()
-        tokens = [tokenizer.decode([token_id], skip_special_tokens=False) for token_id in x]
-        tokens = np.asarray(tokens)
-        return SltParser.slt_to_latex(tokens, edge_relations, edge_index, edge_type)
-
-    @staticmethod
     def clean_slt(tokens, edge_relations, edge_index, edge_type):
         # keep only parent-child edges
         edge_pc_indices = ((edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
@@ -217,15 +209,12 @@ class SltParser:
         if pc_edge_index.shape[0] == 0:
             if tokens.shape[0] == 0:
                 # if there is no node at all --> return empty string
-                return ""
+                root_id = None
             else:
                 # if no edges, but single node --> the only node in graph is root
                 root_id = 0
         else:
             root_id = SltParser.get_root(tokens, pc_edge_index)
-            if root_id is None:
-                logging.warning('Attempt to decode node without root')
-                return ""
 
         # remove end leaf nodes
         # for training time's sake change nodes classified as [EOS]
@@ -256,10 +245,22 @@ class SltParser:
             SltParser.remove_unconnected_edges([i for i in range(len(tokens))], pc_edge_index, pc_edge_relations,
                                                bb_edge_index)
 
+        if len(tokens) == 0:
+            root_id = None
+
         return tokens, pc_edge_index, bb_edge_index, pc_edge_relations, root_id
 
     @staticmethod
-    def slt_to_latex(tokens, edge_relations, edge_index, edge_type):
+    def decode_node_tokens(tokenizer, x):
+        x = x.numpy()
+        tokens = [tokenizer.decode([token_id], skip_special_tokens=False) for token_id in x]
+        tokens = np.asarray(tokens)
+        return tokens
+
+    @staticmethod
+    def slt_to_latex(tokenizer, x, edge_relations, edge_index, edge_type):
+        tokens = SltParser.decode_node_tokens(tokenizer, x)
+
         tokens, pc_edge_index, bb_edge_index, pc_edge_relations, root_id = \
             SltParser.clean_slt(tokens, edge_relations, edge_index, edge_type)
 
@@ -275,6 +276,9 @@ class SltParser:
         # pos = graphviz_layout(g, prog="dot")
         # nx.draw(g, pos, with_labels=True)
         # plt.show()
+
+        if root_id is None:
+            return ""
 
         latex = SltParser.parse_slt_subtree(root_id, tokens, pc_edge_index, bb_edge_index, pc_edge_relations)
         return ' '.join(latex)

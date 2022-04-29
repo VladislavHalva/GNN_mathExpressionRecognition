@@ -10,6 +10,7 @@ import torch.nn.functional as F
 
 from src.data.GPairData import GPairData
 from src.definitions.SltEdgeTypes import SltEdgeTypes
+from src.utils.SltDiff import SltDiff
 from src.utils.SltParser import SltParser
 
 
@@ -67,39 +68,32 @@ def create_attn_gt(data_batch, end_node_token_id):
     return data_batch
 
 
-def calc_and_print_acc(data, tokenizer, during_training=False):
+def calc_and_print_acc(data, tokenizer):
     result = {}
 
     y_pred = torch.argmax(data.y_score, dim=1)
     y_edge_rel_pred = torch.argmax(data.y_edge_rel_score, dim=1)
 
-    latex = SltParser.slt_to_latex_predictions(tokenizer, y_pred, y_edge_rel_pred, data.y_edge_index, data.y_edge_type)
+    latex = SltParser.slt_to_latex(tokenizer, y_pred, y_edge_rel_pred, data.y_edge_index, data.y_edge_type)
 
     gt_ml = tokenizer.decode(data.gt_ml.tolist())
     gt_ml = re.sub(' +', ' ', gt_ml)
 
-    print('GT: ' + tokenizer.decode(data.tgt_y.tolist()))
-    print('PR: ' + tokenizer.decode(y_pred.tolist()))
-    print('GT: ' + gt_ml)
-    print('PR: ' + latex)
-    print("\n")
+    # print('GT: ' + tokenizer.decode(data.tgt_y.tolist()))
+    # print('PR: ' + tokenizer.decode(y_pred.tolist()))
+    # print('GT: ' + gt_ml)
+    # print('PR: ' + latex)
+    # print("\n")
 
-    if during_training:
-        target_tokens = data.tgt_y
-        predicted_tokens = y_pred
-        tokens_count = target_tokens.shape[0]
-        correct_tokens_count = torch.sum((target_tokens == predicted_tokens))
-        result['tokens_count'] = tokens_count
-        result['correct_tokens_count'] = correct_tokens_count
-
-        tgt_edge_pc_indices = ((data.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
-        tgt_pc_edge_relation = data.tgt_edge_relation[tgt_edge_pc_indices]
-        out_pc_edge_relation = data.y_edge_rel_score[tgt_edge_pc_indices]
-        out_pc_edge_relation = out_pc_edge_relation.argmax(dim=-1)
-        edges_count = tgt_pc_edge_relation.shape[0]
-        correct_edges_count = torch.sum((tgt_pc_edge_relation == out_pc_edge_relation))
-        result['edges_count'] = edges_count
-        result['correct_edges_count'] = correct_edges_count
+    # print(data.tgt_y.shape)
+    slt_diff = SltDiff(
+        tokenizer,
+        y_pred, data.y_edge_index, data.y_edge_type, y_edge_rel_pred,
+        data.tgt_y, data.tgt_edge_index, data.tgt_edge_type, data.tgt_edge_relation
+    )
+    slt_diff.eval()
+    slt_diff_result = slt_diff.get_result()
+    # print(data.tgt_y.shape)
 
     target_string = gt_ml
     predicted_string = latex
@@ -111,6 +105,7 @@ def calc_and_print_acc(data, tokenizer, during_training=False):
             correct_symbols_count += 1
     result['symbols_count'] = symbols_count
     result['correct_symbols_count'] = correct_symbols_count
+    result['slt_diff'] = slt_diff_result
 
     return result
 
