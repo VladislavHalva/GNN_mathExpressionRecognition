@@ -4,6 +4,7 @@ import re
 import shutil
 from itertools import zip_longest
 
+from rapidfuzz.distance import Levenshtein
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -74,16 +75,19 @@ def calc_and_print_acc(data, tokenizer):
     y_pred = torch.argmax(data.y_score, dim=1)
     y_edge_rel_pred = torch.argmax(data.y_edge_rel_score, dim=1)
 
-    latex = SltParser.slt_to_latex(tokenizer, y_pred, y_edge_rel_pred, data.y_edge_index, data.y_edge_type)
+    latex, latex_symbols = SltParser.slt_to_latex(tokenizer, y_pred, y_edge_rel_pred, data.y_edge_index, data.y_edge_type)
 
     gt_ml = tokenizer.decode(data.gt_ml.tolist())
     gt_ml = re.sub(' +', ' ', gt_ml)
 
-    # print('GT: ' + tokenizer.decode(data.tgt_y.tolist()))
-    # print('PR: ' + tokenizer.decode(y_pred.tolist()))
-    # print('GT: ' + gt_ml)
-    # print('PR: ' + latex)
-    # print("\n")
+    edit_distance = Levenshtein.distance(gt_ml, latex)
+
+    print('GT: ' + tokenizer.decode(data.tgt_y.tolist()))
+    print('PR: ' + tokenizer.decode(y_pred.tolist()))
+    print('GT: ' + gt_ml)
+    print('PR: ' + latex)
+    print('ED: ' + str(edit_distance))
+    print("\n")
 
     # print(data.tgt_y.shape)
     slt_diff = SltDiff(
@@ -95,8 +99,9 @@ def calc_and_print_acc(data, tokenizer):
     slt_diff_result = slt_diff.get_result()
     # print(data.tgt_y.shape)
 
-    target_string = gt_ml
-    predicted_string = latex
+    target_string = [tokenizer.decode([char], skip_special_tokens=True) for char in data.gt_ml.tolist()]
+    target_string = [char for char in target_string if char != '' and char != ' ']
+    predicted_string = latex_symbols
     symbols_count = 0
     correct_symbols_count = 0
     for gt, pred in zip_longest(target_string, predicted_string, fillvalue=None):
@@ -105,6 +110,7 @@ def calc_and_print_acc(data, tokenizer):
             correct_symbols_count += 1
     result['symbols_count'] = symbols_count
     result['correct_symbols_count'] = correct_symbols_count
+    result['edit_distance'] = edit_distance
     result['slt_diff'] = slt_diff_result
 
     return result

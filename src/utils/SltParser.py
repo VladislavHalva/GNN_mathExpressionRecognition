@@ -278,7 +278,7 @@ class SltParser:
         # plt.show()
 
         if root_id is None:
-            return ""
+            return "", []
 
         latex = SltParser.parse_slt_subtree(root_id, tokens, pc_edge_index, bb_edge_index, pc_edge_relations)
-        return ' '.join(latex)
+        return ' '.join(latex), latex

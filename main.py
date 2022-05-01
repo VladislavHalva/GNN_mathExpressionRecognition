@@ -68,6 +68,7 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape)
     exact_match = 0
     exact_match_1 = 0
     exact_match_2 = 0
+    edit_distances = []
     with torch.no_grad():
         for i, data_batch in enumerate(testloader):
             data_batch = create_attn_gt(data_batch, end_node_token_id)
@@ -82,6 +83,7 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape)
                 acc = calc_and_print_acc(out_elem, tokenizer)
                 symbols_count += acc['symbols_count']
                 correct_symbols_count += acc['correct_symbols_count']
+                edit_distances.append(acc['edit_distance'])
                 exact_match += 1 if acc['slt_diff']['exact_match'] else 0
                 exact_match_1 += 1 if acc['slt_diff']['exact_match_1'] else 0
                 exact_match_2 += 1 if acc['slt_diff']['exact_match_2'] else 0
@@ -90,6 +92,7 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape)
     print(f"sym acc: {symbols_acc:.5f} = {correct_symbols_count} / {symbols_count}")
     print(f"e-match: {exact_match}, e-match-1: {exact_match_1}, e-match-2: {exact_match_2}")
     print(f"e-match: {exact_match/len(testset)}, e-match-1: {exact_match_1/len(testset)}, e-match-2: {exact_match_2/len(testset)}")
+    print(f"avg edit distance: {np.asarray(edit_distances).mean()}")
 
     model.train()
 
@@ -104,6 +107,7 @@ if __name__ == '__main__':
     batch_size = 4
     components_shape = (32, 32)
     edge_features = 19
+    edge_h_size = 128
     enc_in_size = 400
     enc_h_size = 256
     enc_out_size = 256
@@ -112,7 +116,7 @@ if __name__ == '__main__':
 
     load_model = False
     load_model_path = "checkpoints/"
-    load_model_name = "trained_on_tiny.pth"
+    load_model_name = "MER_19_400_256_tiny_22-05-02_00-52-36_final.pth"
 
     train = True
     evaluate = True
@@ -148,7 +152,7 @@ if __name__ == '__main__':
 
     model = Model(
         device,
-        components_shape, edge_features,
+        components_shape, edge_features, edge_h_size,
         enc_in_size, enc_h_size, enc_out_size, dec_h_size, emb_size,
         vocab_size, end_node_token_id, tokenizer)
     # torch.nn.utils.clip_grad_norm_(model.parameters(), 4.0)
@@ -231,7 +235,7 @@ if __name__ == '__main__':
                 print(epoch_loss / len(trainset))
             if save_run:
                 writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
-                if epoch % 50 == 49:
+                if epoch % 30 == 29:
                     pass
                     # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 

@@ -8,12 +8,12 @@ from src.model.Decoder import Decoder
 
 class Model(nn.Module):
     def __init__(
-            self, device, components_shape, edge_features,
+            self, device, components_shape, edge_features, edge_h_size,
             enc_in_size, enc_h_size, enc_out_size, dec_h_size, emb_size,
             vocab_size, end_node_token_id, tokenizer):
         super(Model, self).__init__()
 
-        self.encoder = Encoder(device, components_shape, edge_features, enc_in_size, enc_h_size, enc_out_size)
+        self.encoder = Encoder(edge_features, edge_h_size, enc_in_size, enc_h_size, enc_out_size)
         self.decoder = Decoder(device, enc_out_size, dec_h_size, emb_size, vocab_size, end_node_token_id, tokenizer)
 
         self.lin_x_out = Linear(enc_out_size, vocab_size, bias=True)
