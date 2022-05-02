@@ -99,7 +99,7 @@ class CrohmeDataset(Dataset):
                 return data
         except ItemLoadError as e:
             # if error while loading item - fetch another instead
-            logging.warning(e)
+            logging.debug(e)
             return self.__getitem__(random.randrange(0, self.__len__()))
 
     def get_src_item(self, image_path):
@@ -149,6 +149,7 @@ class CrohmeDataset(Dataset):
         return x, edge_index, edge_attr, components
 
     def get_tgt_item(self, image_path, inkml_path, los_components=None):
+        print(inkml_path)
         # extract ground truth latex sentence from inkml
         gt_latex = self.get_latex_from_inkml(inkml_path)
         gt_latex = LatexVocab.split_to_tokens(gt_latex)
@@ -361,7 +362,7 @@ class CrohmeDataset(Dataset):
 
     def get_latex_from_inkml(self, filepath):
         if not os.path.isfile(filepath) and Path(filepath).suffix != '.inkml':
-            logging.warning("Inkml file does not exists: " + filepath)
+            logging.debug("Inkml file does not exists: " + filepath)
             return ""
 
         doc_namespace = '{http://www.w3.org/2003/InkML}'
@@ -374,7 +375,7 @@ class CrohmeDataset(Dataset):
             return latex_gt
         except AttributeError:
             # element not found
-            logging.warning("Inkml file does not contain latex groundtruth: " + filepath)
+            logging.debug("Inkml file does not contain latex groundtruth: " + filepath)
             return ""
 
     def mathml_dfs(self, xml_ns, mathml_ns, root):
@@ -479,8 +480,8 @@ class CrohmeDataset(Dataset):
                     script_id = subtree_root_id
                     script_sequence = sequence_a
             if not basis_id or not script_id:
-                logging.warning('MathML sub/superscript syntax error')
-                return s, r, None
+                logging.debug('MathML sub/superscript syntax error')
+                return s, r, [], root.attrib.get(xml_ns + 'id')
 
             sequence.extend(basis_sequence)
             if root.tag == mathml_ns + 'msub':
@@ -522,9 +523,9 @@ class CrohmeDataset(Dataset):
                 elif i == 2:
                     superscript_id = subtree_root_id
                     superscript_sequence = sequence_a
-            if not basis_id or not subscript_id or not superscript_id:
-                logging.warning('MathML sub+superscript syntax error')
-                return s, r, None
+            if not basis_id:
+                logging.debug('MathML sub+superscript syntax error')
+                return s, r, [], root.attrib.get(xml_ns + 'id')
 
             if root.tag == mathml_ns + 'msubsup':
                 relation1 = SrtEdgeTypes.SUBSCRIPT
@@ -535,29 +536,37 @@ class CrohmeDataset(Dataset):
 
             if root.tag == mathml_ns + 'msubsup':
                 sequence.extend(basis_sequence)
-                sequence.extend(["_", "{"])
-                sequence.extend(subscript_sequence)
-                sequence.extend(["}", "^", "{"])
-                sequence.extend(superscript_sequence)
-                sequence.append("}")
+                if subscript_id:
+                    sequence.extend(["_", "{"])
+                    sequence.extend(subscript_sequence)
+                    sequence.append("}")
+                if superscript_id:
+                    sequence.extend(["^", "{"])
+                    sequence.extend(superscript_sequence)
+                    sequence.append("}")
             else:
                 sequence.extend(basis_sequence)
-                sequence.extend([r"\underset", "{"])
-                sequence.extend(subscript_sequence)
-                sequence.extend(["}", r"\overset", "{"])
-                sequence.extend(superscript_sequence)
-                sequence.append("}")
+                if subscript_id:
+                    sequence.extend([r"\underset", "{"])
+                    sequence.extend(subscript_sequence)
+                    sequence.append("}")
+                if superscript_id:
+                    sequence.extend([r"\overset", "{"])
+                    sequence.extend(superscript_sequence)
+                    sequence.append("}")
 
-            r.append({
-                'src_id': basis_id,
-                'tgt_id': subscript_id,
-                'type': relation1
-            })
-            r.append({
-                'src_id': basis_id,
-                'tgt_id': superscript_id,
-                'type': relation2
-            })
+            if subscript_id:
+                r.append({
+                    'src_id': basis_id,
+                    'tgt_id': subscript_id,
+                    'type': relation1
+                })
+            if superscript_id:
+                r.append({
+                    'src_id': basis_id,
+                    'tgt_id': superscript_id,
+                    'type': relation2
+                })
             return s, r, sequence, basis_id
         elif root.tag == mathml_ns + 'mfrac':
             # process subtrees, add \frac symbol and add above/below
@@ -582,7 +591,7 @@ class CrohmeDataset(Dataset):
                     denominator_root_id = subtree_root_id
                     denominator_sequence = sequence_a
             if not numerator_root_id or not denominator_root_id:
-                logging.warning('MathML fraction syntax error')
+                logging.debug('MathML fraction syntax error')
                 if not numerator_root_id and not denominator_root_id:
                     sequence.extend(["{", "}", "{", "}"])
                 elif not numerator_root_id:
@@ -593,7 +602,7 @@ class CrohmeDataset(Dataset):
                     sequence.append("{")
                     sequence.extend(numerator_sequence)
                     sequence.extend(["}", "{", "}"])
-                return s, r, sequence, None
+                return s, r, sequence, root.attrib.get(xml_ns + 'id')
             r.append({
                 'src_id': frac_symbol_id,
                 'tgt_id': numerator_root_id,
@@ -761,6 +770,8 @@ class CrohmeDataset(Dataset):
                 s, r, seq, _ = self.mathml_dfs(xml_namespace, doc_namespace, math_root)
         except AttributeError as e:
             raise ItemLoadError(e)
+        except ValueError as e:
+            raise ItemLoadError(e)
 
         # identify all traces included in expression
         traces = self.parse_traces_inkml(doc_namespace, root)
@@ -884,12 +895,6 @@ class CrohmeDataset(Dataset):
         if attn_gt is not None:
             end_nodes_attn_gt = np.full((len(end_nodes), len(los_components)), 1 / len(los_components))
             attn_gt = np.append(attn_gt, end_nodes_attn_gt, 0)
-
-        # UNNECESSARY - now only one token per node or [UNK]
-        # pad all nodes to max tokens count
-        # max_tokenized_length = len(max(x, key=lambda i: len(i)))
-        # pad_token_id = self.tokenizer.encode('[PAD]', add_special_tokens=False).ids[0]
-        # x = [el + [pad_token_id] * (max_tokenized_length - len(el)) for el in x]
 
         edge_index = []
         edge_type = []

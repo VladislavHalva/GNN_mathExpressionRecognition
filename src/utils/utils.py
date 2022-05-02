@@ -44,7 +44,7 @@ def create_attn_gt(data_batch, end_node_token_id):
     comp_symbols = data_batch.comp_symbols
     # create empty attention matrix
     attn_gt = np.zeros((comp_symbols.shape[0], data_batch.tgt_y.shape[0]))
-    # set subgraph attention for all symbols as softmax along all corresponding compoennts
+    # set subgraph attention for all symbols as softmax along all corresponding components
     for cs_i in range(len(comp_symbols)):
         attn_gt[cs_i][comp_symbols[cs_i]] = 1
     attn_gt = np.transpose(attn_gt)
@@ -82,12 +82,12 @@ def calc_and_print_acc(data, tokenizer):
 
     edit_distance = Levenshtein.distance(gt_ml, latex)
 
-    print('GT: ' + tokenizer.decode(data.tgt_y.tolist()))
-    print('PR: ' + tokenizer.decode(y_pred.tolist()))
-    print('GT: ' + gt_ml)
-    print('PR: ' + latex)
-    print('ED: ' + str(edit_distance))
-    print("\n")
+    # print('GT: ' + tokenizer.decode(data.tgt_y.tolist()))
+    # print('PR: ' + tokenizer.decode(y_pred.tolist()))
+    # print('GT: ' + gt_ml)
+    # print('PR: ' + latex)
+    # print('ED: ' + str(edit_distance))
+    # print("\n")
 
     # print(data.tgt_y.shape)
     slt_diff = SltDiff(

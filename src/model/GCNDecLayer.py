@@ -41,6 +41,7 @@ class GCNDecLayer(MessagePassing):
         self.reset_parameters()
 
         self.alpha_values = None
+        self.log_alpha_values = None
 
     def reset_parameters(self):
         self.lin_f_att.reset_parameters()
@@ -134,16 +135,15 @@ class GCNDecLayer(MessagePassing):
         # GLU activation on h - gcn feature vector
         h_in_and_condition = torch.cat([h, h], dim=1)
         h = F.glu(h_in_and_condition, dim=1)
-        # h = F.leaky_relu(h, negative_slope=0.01)
         # compute context vector
         q = self.lin_h(h) + x_bro + x_pa
         alpha = q @ f_att.t().contiguous()
         # mask batch - values belonging to the same input
         alpha_batch_mask = (x_batch.unsqueeze(1) - f_batch.unsqueeze(0) == 0).long()
-        alpha = alpha * alpha_batch_mask
-        # softmax along source graph feature coefficients - irrelevant ones are zeros (masked)
-        alpha = F.softmax(alpha, dim=1)
+        # this adjustment to softmax leaves zeros where they used to be
+        alpha = F.softmax(alpha.masked_fill((1 - alpha_batch_mask).bool(), float('-inf')), dim=1)
         self.alpha_values = alpha
+        # build context vectors based on attention to source graph
         c = alpha @ f_context
         # combine context vector and feature vector acquired from graph convolution
         z = h + c

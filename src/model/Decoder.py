@@ -56,7 +56,7 @@ class Decoder(nn.Module):
 
         # predictions for nodes from output graph
         y_score = self.lin_z_out(y)
-        # build output graph edge features by concatenation corresponding nodes features
+        # build output graph edge features by concatenating corresponding nodes features
         y_edge_features = y[y_edge_index].permute(1, 0, 2)
         y_edge_features = y_edge_features.flatten(1)
         # predictions for edges from output graph

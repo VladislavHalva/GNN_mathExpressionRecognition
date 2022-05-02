@@ -1,19 +1,10 @@
 import logging
 import os.path
-import re
-import sys
-import timeit
-from itertools import chain
-
-import networkx as nx
 import numpy as np
 import torch
 import torch.nn.functional as F
-from matplotlib import pyplot as plt
 from torch import optim, nn
-from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-from torch_geometric.utils import to_networkx
 from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import datetime
@@ -21,11 +12,10 @@ import datetime
 from src.data.CrohmeDataset import CrohmeDataset
 from src.data.LatexVocab import LatexVocab
 from src.definitions.SltEdgeTypes import SltEdgeTypes
-from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.model.Model import Model
-from src.utils.SltParser import SltParser
 from src.utils.loss import loss_termination
-from src.utils.utils import cpy_simple_train_gt, create_attn_gt, calc_and_print_acc, split_databatch
+from src.utils.utils import create_attn_gt, calc_and_print_acc, split_databatch
+
 
 def eval_training_batch(data):
     result = {}
@@ -91,7 +81,8 @@ def evaluate_model(model, images_root, inkmls_root, tokenizer, components_shape)
     symbols_acc = correct_symbols_count / symbols_count if symbols_count > 0 else 0
     print(f"sym acc: {symbols_acc:.5f} = {correct_symbols_count} / {symbols_count}")
     print(f"e-match: {exact_match}, e-match-1: {exact_match_1}, e-match-2: {exact_match_2}")
-    print(f"e-match: {exact_match/len(testset)}, e-match-1: {exact_match_1/len(testset)}, e-match-2: {exact_match_2/len(testset)}")
+    print(
+        f"e-match: {exact_match / len(testset)}, e-match-1: {exact_match_1 / len(testset)}, e-match-2: {exact_match_2 / len(testset)}")
     print(f"avg edit distance: {np.asarray(edit_distances).mean()}")
 
     model.train()
@@ -103,7 +94,7 @@ if __name__ == '__main__':
 
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 150
+    epochs = 100
     batch_size = 4
     components_shape = (32, 32)
     edge_features = 19
@@ -126,8 +117,8 @@ if __name__ == '__main__':
     # to build vocabulary
     dist_inkmls_root = 'assets/crohme/train/inkml'
     # for training
-    train_images_root = 'assets/crohme/simple/img/'
-    train_inkmls_root = 'assets/crohme/simple/inkml/'
+    train_images_root = 'assets/crohme/test/img/'
+    train_inkmls_root = 'assets/crohme/test/inkml/'
     # for test
     test_images_root = 'assets/crohme/simple/img/'
     test_inkmls_root = 'assets/crohme/simple/inkml/'
@@ -151,11 +142,9 @@ if __name__ == '__main__':
     logging.info(f"Device: {device}")
 
     model = Model(
-        device,
-        components_shape, edge_features, edge_h_size,
+        device, edge_features, edge_h_size,
         enc_in_size, enc_h_size, enc_out_size, dec_h_size, emb_size,
         vocab_size, end_node_token_id, tokenizer)
-    # torch.nn.utils.clip_grad_norm_(model.parameters(), 4.0)
     model.float()
     if load_model:
         model.load_state_dict(torch.load(os.path.join(load_model_path, load_model_name), map_location=device))
@@ -163,7 +152,6 @@ if __name__ == '__main__':
     model.to(device)
 
     optimizer = optim.Adam(model.parameters(), lr=0.0003)
-    loss_f = nn.CrossEntropyLoss()
 
     now = datetime.datetime.now()
     model_name = 'MER_' + '19_400_256_tiny' + '_' + now.strftime("%y-%m-%d_%H-%M-%S")
@@ -183,7 +171,7 @@ if __name__ == '__main__':
             if print_train_info:
                 print("EPOCH: " + str(epoch))
 
-            for i, data_batch in tqdm(enumerate(trainloader)):
+            for i, data_batch in enumerate(tqdm(trainloader)):
                 data_batch = create_attn_gt(data_batch, end_node_token_id)
                 data_batch = data_batch.to(device)
 
@@ -191,7 +179,7 @@ if __name__ == '__main__':
                 out = model(data_batch)
 
                 # calculate loss as cross-entropy on output graph node predictions
-                loss_out_node = loss_f(out.y_score, out.tgt_y)
+                loss_out_node = F.cross_entropy(out.y_score, out.tgt_y)
 
                 # calculate additional loss penalizing classification non-end nodes as end nodes
                 loss_end_nodes = loss_termination(out.y_score, out.tgt_y, end_node_token_id)
@@ -201,34 +189,40 @@ if __name__ == '__main__':
                 loss_enc_nodes = F.cross_entropy(out.x_score, x_gt)
 
                 # calculate loss for attention to source graph - average
-                gcn_alpha_avg = torch.cat((out.gcn1_alpha.unsqueeze(0), out.gcn2_alpha.unsqueeze(0), out.gcn3_alpha.unsqueeze(0)), dim=0)
+
+                # get mask for batch target and source graph nodes correspondence
+                alpha_batch_mask = (out.y_batch.unsqueeze(1) - out.x_batch.unsqueeze(0) == 0).long()
+                # transform attention gt so that it matches the desired form of attention
+                attn_gt = F.softmax(out.attn_gt.masked_fill((1 - alpha_batch_mask).bool(), float('-inf')), dim=1)
+                # transform attention gt with log-softmax so that it suit the needs of KL-div and is numerically stable
+                attn_gt = F.log_softmax(attn_gt, dim=1)
+
+                gcn_alpha_avg = torch.cat(
+                    (
+                        out.gcn1_alpha.unsqueeze(0),
+                        out.gcn2_alpha.unsqueeze(0),
+                        out.gcn3_alpha.unsqueeze(0)
+                    ), dim=0)
                 gcn_alpha_avg = torch.mean(gcn_alpha_avg, dim=0)
-                gcn_alpha_avg = F.softmax(gcn_alpha_avg, dim=1)
+                gcn_alpha_avg = F.softmax(gcn_alpha_avg.masked_fill((1 - alpha_batch_mask).bool(), float('-inf')), dim=1)
+                gcn_alpha_avg = F.log_softmax(gcn_alpha_avg, dim=1)
                 loss_gcn_alpha_avg = F.kl_div(
                     gcn_alpha_avg.type(torch.double),
-                    out.attn_gt.type(torch.double),
-                    reduction='batchmean', log_target=False).type(torch.float)
-
-                if epoch % 50 == 49:
-                    print(out.attn_gt.argmax(dim=1))
-                    print(out.gcn1_alpha.argmax(dim=1))
-                    print(out.gcn2_alpha.argmax(dim=1))
-                    print(out.gcn3_alpha.argmax(dim=1))
-                    print(gcn_alpha_avg.argmax(dim=1))
-                    print("\n")
+                    attn_gt.type(torch.double),
+                    reduction='sum', log_target=True).type(torch.float)
 
                 # calculate loss as cross-entropy on output graph SRT edge type predictions
                 tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
                 tgt_pc_edge_relation = out.tgt_edge_relation[tgt_edge_pc_indices]
                 out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
-                loss_out_edge = loss_f(out_pc_edge_relation, tgt_pc_edge_relation)
+                loss_out_edge = F.cross_entropy(out_pc_edge_relation, tgt_pc_edge_relation)
 
                 loss = \
                     loss_out_node + \
                     loss_out_edge + \
-                    0.3 * loss_gcn_alpha_avg + \
-                    0.5 * loss_end_nodes + \
-                    0.5 * loss_enc_nodes
+                    0.5 * loss_gcn_alpha_avg + \
+                    0.5 * loss_enc_nodes + \
+                    0.5 * loss_end_nodes
 
                 loss.backward()
 
@@ -252,9 +246,9 @@ if __name__ == '__main__':
                 print(epoch_loss / len(trainset))
             if save_run:
                 writer.add_scalar('EpochLoss/train', epoch_loss / len(trainset), epoch)
-                if epoch % 30 == 29:
+                if epoch % 5 == 4:
                     pass
-                    # torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
+                    torch.save(model.state_dict(), 'checkpoints/' + model_name + '_epoch' + str(epoch) + '.pth')
 
             if epoch % 20 == 19:
                 evaluate_model(model, test_images_root, test_inkmls_root, tokenizer, components_shape)

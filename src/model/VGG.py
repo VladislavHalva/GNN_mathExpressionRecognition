@@ -24,7 +24,9 @@ class VGG(nn.Module):
         torch.nn.init.kaiming_uniform_(self.conv3_2.weight, mode='fan_in', nonlinearity='relu')
         torch.nn.init.kaiming_uniform_(self.conv3_3.weight, mode='fan_in', nonlinearity='relu')
 
-        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.maxpool1 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.maxpool2 = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.maxpool3 = nn.MaxPool2d(kernel_size=2, stride=2)
 
         self.fc1 = nn.Linear(4096, 4096)
         self.fc2 = nn.Linear(4096, 4096)
@@ -33,14 +35,14 @@ class VGG(nn.Module):
     def forward(self, x):
         x = F.relu(self.conv1_1(x))
         x = F.relu(self.conv1_2(x))
-        x = self.maxpool(x)
+        x = self.maxpool1(x)
         x = F.relu(self.conv2_1(x))
         x = F.relu(self.conv2_2(x))
-        x = self.maxpool(x)
+        x = self.maxpool2(x)
         x = F.relu(self.conv3_1(x))
         x = F.relu(self.conv3_2(x))
         x = F.relu(self.conv3_3(x))
-        x = self.maxpool(x)
+        x = self.maxpool3(x)
         x = x.reshape(x.shape[0], -1)
         x = F.relu(self.fc1(x))
         x = F.dropout(x, self.dropout_p, training=self.training)
