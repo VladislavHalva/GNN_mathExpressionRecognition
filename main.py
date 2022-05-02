@@ -103,7 +103,7 @@ if __name__ == '__main__':
 
     load_vocab = True
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 300
+    epochs = 150
     batch_size = 4
     components_shape = (32, 32)
     edge_features = 19
@@ -116,7 +116,7 @@ if __name__ == '__main__':
 
     load_model = False
     load_model_path = "checkpoints/"
-    load_model_name = "MER_19_400_256_tiny_22-05-02_00-52-36_final.pth"
+    load_model_name = "MER_19_400_256_tiny_22-05-02_02-39-34_final.pth"
 
     train = True
     evaluate = True
@@ -203,7 +203,19 @@ if __name__ == '__main__':
                 # calculate loss for attention to source graph - average
                 gcn_alpha_avg = torch.cat((out.gcn1_alpha.unsqueeze(0), out.gcn2_alpha.unsqueeze(0), out.gcn3_alpha.unsqueeze(0)), dim=0)
                 gcn_alpha_avg = torch.mean(gcn_alpha_avg, dim=0)
-                loss_gcn_alpha_avg = F.mse_loss(gcn_alpha_avg.type(torch.double), out.attn_gt.type(torch.double)).type(torch.float)
+                gcn_alpha_avg = F.softmax(gcn_alpha_avg, dim=1)
+                loss_gcn_alpha_avg = F.kl_div(
+                    gcn_alpha_avg.type(torch.double),
+                    out.attn_gt.type(torch.double),
+                    reduction='batchmean', log_target=False).type(torch.float)
+
+                if epoch % 50 == 49:
+                    print(out.attn_gt.argmax(dim=1))
+                    print(out.gcn1_alpha.argmax(dim=1))
+                    print(out.gcn2_alpha.argmax(dim=1))
+                    print(out.gcn3_alpha.argmax(dim=1))
+                    print(gcn_alpha_avg.argmax(dim=1))
+                    print("\n")
 
                 # calculate loss as cross-entropy on output graph SRT edge type predictions
                 tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
@@ -211,7 +223,12 @@ if __name__ == '__main__':
                 out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
                 loss_out_edge = loss_f(out_pc_edge_relation, tgt_pc_edge_relation)
 
-                loss = loss_out_node + loss_out_edge + 0.3 * loss_gcn_alpha_avg + 0.5 * loss_end_nodes + 0.5 * loss_enc_nodes
+                loss = \
+                    loss_out_node + \
+                    loss_out_edge + \
+                    0.3 * loss_gcn_alpha_avg + \
+                    0.5 * loss_end_nodes + \
+                    0.5 * loss_enc_nodes
 
                 loss.backward()
 
