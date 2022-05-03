@@ -1,0 +1,7 @@
+---
+title: 90_alfonso
+author: Vladislav Halva
+date: May 04 2022
+---
+
+$$y = r \sin \theta$$

@@ -1,4 +1,6 @@
+import os.path
 import re
+from datetime import date
 from itertools import zip_longest
 from rapidfuzz.distance import Levenshtein
 import numpy as np
@@ -49,6 +51,11 @@ def split_databatch(databatch):
         tgt_y_b_ids = (db.tgt_y_batch == batch_id).nonzero(as_tuple=True)[0]
         gt_b_ids = (db.gt_batch == batch_id).nonzero(as_tuple=True)[0]
         gt_ml_b_ids = (db.gt_ml_batch == batch_id).nonzero(as_tuple=True)[0]
+        if db.filename is not None:
+            filename_b_id = (db.filename_batch == batch_id).nonzero(as_tuple=True)[0]
+            filename_b = db.filename[filename_b_id]
+        else:
+            filename_b = None
 
         # get latex GTs for current batch item
         gt_b = db.gt[gt_b_ids]
@@ -92,7 +99,7 @@ def split_databatch(databatch):
             x=x_b, edge_index=edge_index_b, edge_attr=edge_attr_b,
             gt=gt_b, gt_ml=gt_ml_b, tgt_y=tgt_y_b, tgt_edge_index=tgt_edge_index_b,
             tgt_edge_type=tgt_edge_type_b, tgt_edge_relation=tgt_edge_relation_b,
-            comp_symbols=comp_symbols_b
+            comp_symbols=comp_symbols_b, filename=filename_b
         )
         data_b.x_score = x_score_b
         data_b.attn_gt = attn_gt_b
@@ -167,65 +174,56 @@ def mathml_unicode_to_latex_label(label, skip_curly_brackets=False):
     if label in ['}', '{'] and not skip_curly_brackets:
         return '\\' + label
 
-    if label == '÷':
-        return '\\div'
-    if label == '×':
-        return '\\times'
-    if label == '±':
-        return '\\pm'
-    if label == '∑':
-        return '\\sum'
-    if label == 'π':
-        return '\\pi'
-    if label == '∫':
-        return '\\int'
-    if label == 'θ':
-        return '\\theta'
-    if label == '∞':
-        return '\\infty'
-    if label == '…':
-        return '\\ldots'
-    if label == 'β':
-        return '\\beta'
-    if label == '→':
-        return '\\rightarrow'
-    if label == '≤':
-        return '\\leq'
-    if label == '≥':
-        return '\\geq'
-    if label == '<':
-        return '\\lt'
-    if label == '>':
-        return '\\gt'
-    if label == 'σ':
-        return '\\sigma'
-    if label == 'ϕ':
-        return '\\phi'
-    if label == '′':
-        return '\\prime'
-    if label == 'Γ':
-        return '\\gamma'
-    if label == 'γ':
-        return '\\gamma'
-    if label == 'μ':
-        return '\\mu'
-    if label == 'λ':
-        return '\\lambda'
-    if label == 'Δ':
-        return '\\Delta'
-    if label == '∃':
-        return '\\exists'
-    if label == '∀':
-        return '\\forall'
-    if label == '∈':
-        return '\\in'
-    if label == '∂':
-        return '\\partial'
-    if label == '≠':
-        return '\\neq'
-    if label == 'α':
-        return '\\alpha'
-    if label == '−':
-        return '-'
+    transcriptions = {
+        '÷': '\\div',
+        '×': '\\times',
+        '±': '\\pm',
+        '∑': '\\sum',
+        'π': '\\pi',
+        '∫': '\\int',
+        'θ': '\\theta',
+        '∞': '\\infty',
+        '…': '\\ldots',
+        'β': '\\beta',
+        '→': '\\rightarrow',
+        '≤': '\\leq',
+        '≥': '\\geq',
+        '<': '\\lt',
+        '>': '\\gt',
+        'σ': '\\sigma',
+        'ϕ': '\\phi',
+        '′': '\\prime',
+        'Γ': '\\gamma',
+        'γ': '\\gamma',
+        'μ': '\\mu',
+        'λ': '\\lambda',
+        'Δ': '\\Delta',
+        '∃': '\\exists',
+        '∀': '\\forall',
+        '∈': '\\in',
+        '∂': '\\partial',
+        '≠': '\\neq',
+        'α': '\\alpha',
+        '−': '-'
+    }
+    if label in transcriptions.keys():
+        return transcriptions[label]
 
     return label
+
+
+def create_latex_result_file(directory, filename, latex, author):
+    if not os.path.exists(directory):
+        return False
+
+    today = date.today()
+    today = today.strftime("%B %d %Y")
+    file_content = f"---\ntitle: {filename}\nauthor: {author}\ndate: {today}\n---\n\n$${latex}$$"
+    try:
+        with open(os.path.join(directory, filename+'.txt'), 'w') as fd:
+            fd.write(file_content)
+    except Exception as e:
+        return False
+
+    return True
+

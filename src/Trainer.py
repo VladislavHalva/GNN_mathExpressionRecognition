@@ -15,7 +15,7 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.exceptions.ModelParamsError import ModelParamsError
 from src.model.Model import Model
 from src.utils.loss import calculate_loss
-from src.utils.utils import create_attn_gt, split_databatch, compute_single_item_stats
+from src.utils.utils import create_attn_gt, split_databatch, compute_single_item_stats, create_latex_result_file
 
 
 class Trainer:
@@ -188,13 +188,16 @@ class Trainer:
         return stats
 
     def evaluate(self, images_root, inkmls_root, batch_size=1, writer=False, epoch=None, print_stats=True,
-                 print_item_level_stats=False):
+                 print_item_level_stats=False, store_results_dir=None, results_author=''):
         logging.info("\nEvaluation...")
         self.model.eval()
 
+        if store_results_dir is None or not os.path.exists(store_results_dir):
+            store_results_dir = None
+
         # load data
         testset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path)
-        testloader = DataLoader(testset, batch_size, False, follow_batch=['x', 'tgt_y', 'gt', 'gt_ml'])
+        testloader = DataLoader(testset, batch_size, False, follow_batch=['x', 'tgt_y', 'gt', 'gt_ml', 'filename'])
 
         # init statistics
         stats = {
@@ -249,6 +252,9 @@ class Trainer:
                         logging.info(f"  SLT exact-match-2: {item_stats['slt_diff']['exact_match_2']}")
                         logging.info(f"  SLT sym-cls-err:   {item_stats['slt_diff']['node_class_errors']}")
                         logging.info(f"  SLT edge-cls-err:  {item_stats['slt_diff']['edge_class_errors']}")
+
+                    if store_results_dir is not None:
+                        create_latex_result_file(store_results_dir, out_elem.filename, item_stats['latex_pred'], results_author)
 
                     if writer and epoch is not None:
                         self.writer.add_scalar('ItemEditDistStr/eval', item_stats['edit_distance_str'], epoch + len(testloader) + i)

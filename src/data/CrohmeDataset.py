@@ -66,8 +66,6 @@ class CrohmeDataset(Dataset):
             item = self.items[idx]
             image_path, inkml_path, file_name = item
 
-            # print(image_path)
-
             if self.tmp_path:
                 tmp_file_path = os.path.join(self.tmp_path, file_name + '.tmp')
 
@@ -89,6 +87,7 @@ class CrohmeDataset(Dataset):
                     tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation,
                     comp_symbols=comp_symbols
                 )
+                data.filename = file_name
 
                 if self.tmp_path:
                     # save for next epoch/train run

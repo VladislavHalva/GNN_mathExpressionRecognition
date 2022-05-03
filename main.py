@@ -12,7 +12,7 @@ if __name__ == '__main__':
         vocab_path='assets/vocab.txt',
         load_vocab=True,
         inkml_folder_vocab='assets/crohme/train/inkml',
-        load_model='MER_22-05-03_15-32-51_final.pth',
+        load_model=None,
         writer='runs/',
         temp_path=None
     )
@@ -28,7 +28,7 @@ if __name__ == '__main__':
     trainer.train(
         images_root='assets/crohme/simple/img/',
         inkmls_root='assets/crohme/simple/inkml/',
-        epochs=150,
+        epochs=100,
         batch_size=4,
         save_model_dir='checkpoints/'
     )
@@ -38,6 +38,8 @@ if __name__ == '__main__':
         inkmls_root='assets/crohme/simple/inkml/',
         batch_size=4,
         print_stats=True,
-        print_item_level_stats=True
+        print_item_level_stats=True,
+        store_results_dir=None,
+        results_author='Vladislav Halva'
     )
 
