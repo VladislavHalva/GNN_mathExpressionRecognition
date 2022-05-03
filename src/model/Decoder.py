@@ -1,7 +1,6 @@
 from itertools import compress
 import torch
 from torch import nn
-from torch.nn import Linear
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
@@ -26,8 +25,8 @@ class Decoder(nn.Module):
         self.gcn2 = GCNDecLayer(device, f_size, h_size, h_size, is_first=False)
         self.gcn3 = GCNDecLayer(device, f_size, h_size, emb_size, is_first=False)
 
-        self.lin_z_out = Linear(emb_size, vocab_size, bias=True)
-        self.lin_g_out = Linear(2 * emb_size, len(SrtEdgeTypes))
+        self.lin_z_out = nn.Linear(emb_size, vocab_size, bias=True)
+        self.lin_g_out = nn.Linear(2 * emb_size, len(SrtEdgeTypes))
 
     def forward(self, x, x_batch, tgt_y=None, tgt_edge_index=None, tgt_edge_type=None, tgt_y_batch=None):
         if self.training:

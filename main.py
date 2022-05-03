@@ -12,8 +12,9 @@ if __name__ == '__main__':
         vocab_path='assets/vocab.txt',
         load_vocab=True,
         inkml_folder_vocab='assets/crohme/train/inkml',
-        load_model=None,
-        writer='runs/'
+        load_model='MER_22-05-03_15-32-51_final.pth',
+        writer='runs/',
+        temp_path='temp/'
     )
 
     trainer.set_eval_during_training(
@@ -21,15 +22,14 @@ if __name__ == '__main__':
         inkmls_root='assets/crohme/simple/inkml/',
         batch_size=4,
         print_stats=True,
-        print_item_level_stats=False,
-        each_nth_epoch=1
+        print_item_level_stats=True,
+        each_nth_epoch=20
     )
     trainer.train(
         images_root='assets/crohme/simple/img/',
         inkmls_root='assets/crohme/simple/inkml/',
-        epochs=100,
+        epochs=150,
         batch_size=4,
-        temp_path=None,
         save_model_dir='checkpoints/'
     )
 

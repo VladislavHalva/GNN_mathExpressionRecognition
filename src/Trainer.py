@@ -27,7 +27,8 @@ class Trainer:
         load_vocab=False,
         inkml_folder_vocab=None,
         load_model=None,
-        writer=None
+        writer=None,
+        temp_path=None
     ):
         # define metaparameters
         self.components_shape = (32, 32)
@@ -78,6 +79,11 @@ class Trainer:
         else:
             self.writer = False
 
+        if temp_path is not None and os.path.exists(temp_path):
+            self.temp_path = temp_path
+        else:
+            self.temp_path = temp_path
+
         self.eval_during_training = False
         self.eval_train_settings = None
 
@@ -98,16 +104,12 @@ class Trainer:
                 'each_nth_epoch': each_nth_epoch
             }
 
-    def train(self, images_root, inkmls_root, epochs, batch_size=1, temp_path=None, save_model_dir=None):
+    def train(self, images_root, inkmls_root, epochs, batch_size=1, save_model_dir=None):
         logging.info("\nTraining...")
 
         optimizer = optim.Adam(self.model.parameters(), lr=0.0003)
 
-        # set directory for trainset objects temporary storage - not calculated in every batch, but loaded
-        if temp_path is None or not os.path.exists(temp_path):
-            temp_path = None
-
-        trainset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, temp_path)
+        trainset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path)
         trainloader = DataLoader(trainset, batch_size, True, follow_batch=['x', 'tgt_y'])
 
         self.model.train()
@@ -191,7 +193,7 @@ class Trainer:
         self.model.eval()
 
         # load data
-        testset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape)
+        testset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path)
         testloader = DataLoader(testset, batch_size, False, follow_batch=['x', 'tgt_y', 'gt', 'gt_ml'])
 
         # init statistics

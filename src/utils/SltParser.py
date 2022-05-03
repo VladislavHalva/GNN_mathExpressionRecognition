@@ -1,11 +1,4 @@
-import logging
-
-import networkx as nx
 import numpy as np
-import torch
-from matplotlib import pyplot as plt
-from networkx.drawing.nx_pydot import graphviz_layout
-from treelib import Node, Tree
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
@@ -186,10 +179,16 @@ class SltParser:
         # remove edge relations belonging to removed edges
         edge_relations1 = np.delete(edge_relations1, edge_index1_r_ids)
         # shift node indices in edge_index arrays so that they match the x-elems indices after removal
-        shift_indices = lambda x: x - x_shift_positions[x]
-        edge_index1 = shift_indices(edge_index1)
-        edge_index2 = shift_indices(edge_index2)
+        edge_index1 = SltParser.shift_indices_edge(edge_index1, x_shift_positions)
+        edge_index2 = SltParser.shift_indices_edge(edge_index2, x_shift_positions)
         return x, edge_index1, edge_index2, edge_relations1
+
+    @staticmethod
+    def shift_indices_edge(edge_index, x_shift_positions):
+        for i in range(edge_index.shape[0]):
+            for j in range(edge_index.shape[1]):
+                edge_index[i][j] = edge_index[i][j] - x_shift_positions[edge_index[i][j]]
+        return edge_index
 
     @staticmethod
     def clean_slt(tokens, edge_relations, edge_index, edge_type):
