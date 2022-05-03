@@ -23,7 +23,7 @@ from src.definitions.MathMLAnnotationType import MathMLAnnotationType
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ItemLoadError import ItemLoadError
-from src.utils.SltParser import SltParser
+from src.utils.utils import mathml_unicode_to_latex_label
 
 
 class CrohmeDataset(Dataset):
@@ -97,8 +97,7 @@ class CrohmeDataset(Dataset):
                             pickle.dump(data, tmp_file)
 
                 return data
-        except ItemLoadError as e:
-            # if error while loading item - fetch another instead
+        except Exception as e:
             logging.debug(e)
             return self.__getitem__(random.randrange(0, self.__len__()))
 
@@ -152,7 +151,6 @@ class CrohmeDataset(Dataset):
         # extract ground truth latex sentence from inkml
         gt_latex = self.get_latex_from_inkml(inkml_path)
         gt_latex = LatexVocab.split_to_tokens(gt_latex)
-        # gt_latex = gt_latex.replace(' ', '')
         gt_latex_tokens = self.tokenizer.encode(gt_latex)
         gt = torch.tensor(gt_latex_tokens.ids, dtype=torch.long)
 
@@ -825,7 +823,10 @@ class CrohmeDataset(Dataset):
 
     def get_slt(self, image_path, inkml_path, los_components=None):
         symbols, relations, sequence, tracegroups = self.parse_inkml(inkml_path)
-        # symbols = self.symbols_to_commands_if_possible(symbols)
+        for symbol in symbols:
+            symbol['symbol'] = mathml_unicode_to_latex_label(symbol['symbol'])
+        for i, symbol in enumerate(sequence):
+            sequence[i] = mathml_unicode_to_latex_label(symbol, skip_curly_brackets=True)
         # tokenize symbols
         unk_token_id = self.tokenizer.encode('[UNK]', add_special_tokens=False).ids[0]
         x = [self.tokenizer.encode(s['symbol'], add_special_tokens=False).ids for s in symbols]

@@ -14,7 +14,7 @@ if __name__ == '__main__':
         inkml_folder_vocab='assets/crohme/train/inkml',
         load_model='MER_22-05-03_15-32-51_final.pth',
         writer='runs/',
-        temp_path='temp/'
+        temp_path=None
     )
 
     trainer.set_eval_during_training(
@@ -38,6 +38,6 @@ if __name__ == '__main__':
         inkmls_root='assets/crohme/simple/inkml/',
         batch_size=4,
         print_stats=True,
-        print_item_level_stats=False
+        print_item_level_stats=True
     )
 

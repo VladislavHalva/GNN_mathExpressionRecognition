@@ -15,6 +15,7 @@ from pylatexenc.latexwalker import LatexWalker, LatexMathNode
 from src.data.LTokenizer import LTokenizer
 from src.definitions.MathMLAnnotationType import MathMLAnnotationType
 from src.definitions.exceptions.ItemLoadError import ItemLoadError
+from src.utils.utils import mathml_unicode_to_latex_label
 
 
 class LatexVocab:
@@ -80,6 +81,8 @@ class LatexVocab:
                                 file_symbols = LatexVocab.mathml_symbols_dfs(xml_namespace, mathml_namespace, math_root)
                             else:
                                 file_symbols = LatexVocab.mathml_symbols_dfs(xml_namespace, doc_namespace, math_root)
+                            for i, symbol in enumerate(file_symbols):
+                                file_symbols[i] = mathml_unicode_to_latex_label(symbol)
                             file_symbols = " ".join(file_symbols)
                             formulas.append(file_symbols)
                         except AttributeError as e:

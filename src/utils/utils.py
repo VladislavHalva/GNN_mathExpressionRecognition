@@ -18,7 +18,7 @@ def create_attn_gt(data_batch, end_node_token_id):
         attn_gt[cs_i][comp_symbols[cs_i]] = 1
     attn_gt = np.transpose(attn_gt)
     attn_gt_rows_sum = attn_gt.sum(axis=1)
-    attn_gt_rows_sum[attn_gt_rows_sum<1] = 1
+    attn_gt_rows_sum[attn_gt_rows_sum < 1] = 1
     attn_gt = attn_gt / attn_gt_rows_sum[:, np.newaxis]
     attn_gt = torch.from_numpy(attn_gt)
     # get indices of components belonging to each of batch items
@@ -58,7 +58,8 @@ def split_databatch(databatch):
         x_b = db.x[x_b_ids]
         comp_symbols_b = db.comp_symbols[x_b_ids]
         x_score_b = db.x_score[x_b_ids]
-        edge_index_b_ids = [i for i, src in enumerate(db.edge_index[0]) if src in x_b_ids and db.edge_index[1][i] in x_b_ids]
+        edge_index_b_ids = [i for i, src in enumerate(db.edge_index[0]) if
+                            src in x_b_ids and db.edge_index[1][i] in x_b_ids]
         edge_index_b = db.edge_index.t()[edge_index_b_ids].t()
         edge_index_b[0] = (edge_index_b[0].view(-1, 1) == x_b_ids).int().argmax(dim=1)
         edge_index_b[1] = (edge_index_b[1].view(-1, 1) == x_b_ids).int().argmax(dim=1)
@@ -67,7 +68,8 @@ def split_databatch(databatch):
         # get target graph elements for current batch item
         tgt_y_b = db.tgt_y[tgt_y_b_ids]
         attn_gt_b = db.attn_gt[tgt_y_b_ids]
-        tgt_edge_index_b_ids = [i for i, src in enumerate(db.tgt_edge_index[0]) if src in tgt_y_b_ids and db.tgt_edge_index[1][i] in tgt_y_b_ids]
+        tgt_edge_index_b_ids = [i for i, src in enumerate(db.tgt_edge_index[0]) if
+                                src in tgt_y_b_ids and db.tgt_edge_index[1][i] in tgt_y_b_ids]
         tgt_edge_index_b = db.tgt_edge_index.t()[tgt_edge_index_b_ids].t()
         tgt_edge_index_b[0] = (tgt_edge_index_b[0].view(-1, 1) == tgt_y_b_ids).int().argmax(dim=1)
         tgt_edge_index_b[1] = (tgt_edge_index_b[1].view(-1, 1) == tgt_y_b_ids).int().argmax(dim=1)
@@ -77,7 +79,8 @@ def split_databatch(databatch):
         # get output graph elements for current batch item
         y_b = db.y[y_b_ids]
         y_score_b = db.y_score[y_b_ids]
-        y_edge_index_b_ids = [i for i, src in enumerate(db.y_edge_index[0]) if src in y_b_ids and db.y_edge_index[1][i] in y_b_ids]
+        y_edge_index_b_ids = [i for i, src in enumerate(db.y_edge_index[0]) if
+                              src in y_b_ids and db.y_edge_index[1][i] in y_b_ids]
         y_edge_index_b = db.y_edge_index.t()[y_edge_index_b_ids].t()
         y_edge_index_b[0] = (y_edge_index_b[0].view(-1, 1) == y_b_ids).int().argmax(dim=1)
         y_edge_index_b[1] = (y_edge_index_b[1].view(-1, 1) == y_b_ids).int().argmax(dim=1)
@@ -122,7 +125,8 @@ def compute_single_item_stats(data, tokenizer):
     # decode ground-truth latex string - created from MathML GT
     gt_ml = tokenizer.decode(data.gt_ml.tolist())
     gt_ml = re.sub(' +', ' ', gt_ml)
-    gt_ml_symbols = [tokenizer.decode([symbol_id]) for symbol_id in data.gt_ml.tolist() if tokenizer.decode([symbol_id]).strip() != '']
+    gt_ml_symbols = [tokenizer.decode([symbol_id]) for symbol_id in data.gt_ml.tolist() if
+                     tokenizer.decode([symbol_id]).strip() != '']
     stats['latex_gt'] = gt_ml
 
     # calculate edit-distance
@@ -153,3 +157,75 @@ def compute_single_item_stats(data, tokenizer):
     stats['seq_correct_symbols_count'] = correct_symbols_count
 
     return stats
+
+
+def mathml_unicode_to_latex_label(label, skip_curly_brackets=False):
+    if label in ['alpha', 'beta', 'sin', 'cos', 'tan', 'rightarrow', 'sum', 'int', 'pi',
+                 'leq', 'lim', 'geq', 'infty', 'prime', 'times', 'pm', 'log']:
+        return '\\' + label
+
+    if label in ['}', '{'] and not skip_curly_brackets:
+        return '\\' + label
+
+    if label == '÷':
+        return '\\div'
+    if label == '×':
+        return '\\times'
+    if label == '±':
+        return '\\pm'
+    if label == '∑':
+        return '\\sum'
+    if label == 'π':
+        return '\\pi'
+    if label == '∫':
+        return '\\int'
+    if label == 'θ':
+        return '\\theta'
+    if label == '∞':
+        return '\\infty'
+    if label == '…':
+        return '\\ldots'
+    if label == 'β':
+        return '\\beta'
+    if label == '→':
+        return '\\rightarrow'
+    if label == '≤':
+        return '\\leq'
+    if label == '≥':
+        return '\\geq'
+    if label == '<':
+        return '\\lt'
+    if label == '>':
+        return '\\gt'
+    if label == 'σ':
+        return '\\sigma'
+    if label == 'ϕ':
+        return '\\phi'
+    if label == '′':
+        return '\\prime'
+    if label == 'Γ':
+        return '\\gamma'
+    if label == 'γ':
+        return '\\gamma'
+    if label == 'μ':
+        return '\\mu'
+    if label == 'λ':
+        return '\\lambda'
+    if label == 'Δ':
+        return '\\Delta'
+    if label == '∃':
+        return '\\exists'
+    if label == '∀':
+        return '\\forall'
+    if label == '∈':
+        return '\\in'
+    if label == '∂':
+        return '\\partial'
+    if label == '≠':
+        return '\\neq'
+    if label == 'α':
+        return '\\alpha'
+    if label == '−':
+        return '-'
+
+    return label
