@@ -56,7 +56,7 @@ class CrohmeDataset(Dataset):
                     if os.path.exists(inkml_path):
                         self.items.append([image_path, inkml_path, file_name])
 
-        logging.info(str(len(self.items)) + ' items found')
+        logging.info(f"Dataset: {len(self.items)} item found")
 
     def __len__(self):
         return len(self.items)
@@ -149,7 +149,6 @@ class CrohmeDataset(Dataset):
         return x, edge_index, edge_attr, components
 
     def get_tgt_item(self, image_path, inkml_path, los_components=None):
-        print(inkml_path)
         # extract ground truth latex sentence from inkml
         gt_latex = self.get_latex_from_inkml(inkml_path)
         gt_latex = LatexVocab.split_to_tokens(gt_latex)
@@ -873,17 +872,6 @@ class CrohmeDataset(Dataset):
 
             comp_symbols = torch.tensor(los_components_symbols, dtype=torch.long)
 
-            # create symbols-components mapping matrix
-            attn_gt = np.zeros((len(los_components), len(symbols)))
-            for lc_i in range(len(los_components)):
-                attn_gt[lc_i][los_components_symbols[lc_i]] = 1
-            # transpose - symbols dimension first
-            attn_gt = np.transpose(attn_gt)
-            # normalize for symbols (in rows)
-            attn_gt_rows_sum = attn_gt.sum(axis=1)
-            attn_gt_rows_sum[attn_gt_rows_sum<1] = 1
-            attn_gt = attn_gt / attn_gt_rows_sum[:, np.newaxis]
-
             # plt.imshow(img)
             # plt.show()
 
@@ -892,9 +880,6 @@ class CrohmeDataset(Dataset):
 
         # append nodes with end children
         x.extend(end_nodes)
-        if attn_gt is not None:
-            end_nodes_attn_gt = np.full((len(end_nodes), len(los_components)), 1 / len(los_components))
-            attn_gt = np.append(attn_gt, end_nodes_attn_gt, 0)
 
         edge_index = []
         edge_type = []
