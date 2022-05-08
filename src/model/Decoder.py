@@ -1,32 +1,38 @@
 from itertools import compress
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ModelParamsError import ModelParamsError
-from src.model.GCNDecLayer import GCNDecLayer
-
+from src.model.DecoderBlock import DecoderBlock
 
 class Decoder(nn.Module):
-    def __init__(self, device, f_size, h_size, emb_size, vocab_size, end_node_token_id, tokenizer):
+    def __init__(self, device, f_size, in_size, h_size, emb_size, vocab_size, end_node_token_id, tokenizer, emb_dropout_p, att_dropout_p):
         super(Decoder, self).__init__()
         self.device = device
         self.f_size = f_size
+        self.in_size = in_size
         self.h_size = h_size
         self.emb_size = emb_size
         self.vocab_size = vocab_size
         self.end_node_token_id = end_node_token_id
         self.max_output_graph_size = 70
         self.tokenizer = tokenizer
+        self.emb_dropout_p = emb_dropout_p
 
-        self.embeds = nn.Embedding(vocab_size, emb_size)
-        self.gcn1 = GCNDecLayer(device, f_size, emb_size, h_size, is_first=True)
-        self.gcn2 = GCNDecLayer(device, f_size, h_size, h_size, is_first=False)
-        self.gcn3 = GCNDecLayer(device, f_size, h_size, emb_size, is_first=False)
+        self.embeds = nn.Embedding(vocab_size, in_size)
+        self.gcn1 = DecoderBlock(device, f_size, in_size, h_size, att_dropout_p, is_first=True)
+        self.gcn2 = DecoderBlock(device, f_size, h_size, h_size, att_dropout_p, is_first=False)
+        self.gcn3 = DecoderBlock(device, f_size, h_size, emb_size, att_dropout_p, is_first=False)
 
         self.lin_z_out = nn.Linear(emb_size, vocab_size, bias=True)
         self.lin_g_out = nn.Linear(2 * emb_size, len(SrtEdgeTypes))
+
+        self.gcn1_alpha_eval = None
+        self.gcn2_alpha_eval = None
+        self.gcn3_alpha_eval = None
 
     def forward(self, x, x_batch, tgt_y=None, tgt_edge_index=None, tgt_edge_type=None, tgt_y_batch=None):
         if self.training:
@@ -36,6 +42,7 @@ class Decoder(nn.Module):
                 raise ModelParamsError('ground truth SLT graph missing while training')
             # create tgt nodes embeddings
             y = self.embeds(tgt_y.unsqueeze(1))
+            y = F.dropout(y, p=self.emb_dropout_p, training=self.training)
             # remove dimension added by embedding layer
             y = y.squeeze(1)
             # rename to be consistent with evaluation time
@@ -43,15 +50,15 @@ class Decoder(nn.Module):
             y_edge_type = tgt_edge_type
             y_batch = tgt_y_batch
             # gcn layers
-            y = self.gcn1(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
-            gcn1_alpha = self.gcn1.alpha_values
-            y = self.gcn2(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
-            gcn2_alpha = self.gcn2.alpha_values
-            y = self.gcn3(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
-            gcn3_alpha = self.gcn3.alpha_values
+            y, gcn1_alpha = self.gcn1(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
+            y, gcn2_alpha = self.gcn2(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
+            y, gcn3_alpha = self.gcn3(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
+            # save attention coefficients mask
         else:
             y, y_batch, y_edge_index, y_edge_type = self.gen_graph(x, x_batch)
-            gcn1_alpha, gcn2_alpha, gcn3_alpha = None, None, None
+            gcn1_alpha = self.gcn1_alpha_eval
+            gcn2_alpha = self.gcn2_alpha_eval
+            gcn3_alpha = self.gcn3_alpha_eval
 
         # predictions for nodes from output graph
         y_score = self.lin_z_out(y)
@@ -87,9 +94,10 @@ class Decoder(nn.Module):
     def gen_subtree(self, x, x_batch, y_init, y, y_batch, y_eindex, y_etype, gen_tree, pa_ids, gp_ids, ls_ids):
         # create new nodes for each batch that is not finished yet
         batch_idx_unfinisned = torch.tensor(list(compress(range(len(gen_tree)), gen_tree)), dtype=torch.long).to(self.device)
+        y_init_new = torch.zeros((len(batch_idx_unfinisned), self.in_size), dtype=torch.float).to(self.device)
         y_new = torch.zeros((len(batch_idx_unfinisned), self.emb_size), dtype=torch.float).to(self.device)
         y_new_idx = torch.tensor([y.shape[0] + order for order in range(y_new.shape[0])], dtype=torch.long).to(self.device)
-        y_init = torch.cat([y_init, y_new], dim=0)
+        y_init = torch.cat([y_init, y_init_new], dim=0)
         y = torch.cat([y, y_new], dim=0)
         y_batch = torch.cat([y_batch, batch_idx_unfinisned], dim=0)
 
@@ -104,9 +112,14 @@ class Decoder(nn.Module):
                 y_eindex, y_etype = self.create_edge(y_eindex, y_etype, ls_ids[i_batch], y_new_idx[i], SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER)
         # process with GCNs
         y_processed = torch.clone(y_init)
-        y_processed = self.gcn1(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
-        y_processed = self.gcn2(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
-        y_processed = self.gcn3(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
+        y_processed, gcn1_alpha = self.gcn1(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
+        y_processed, gcn2_alpha = self.gcn2(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
+        y_processed, gcn3_alpha = self.gcn3(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
+        # save attention coefficients - for analysis purposes only
+        # the ones from last node generation will be returned
+        self.gcn1_alpha_eval = gcn1_alpha
+        self.gcn2_alpha_eval = gcn2_alpha
+        self.gcn3_alpha_eval = gcn3_alpha
         # update value only for newly created node
         y[y_new_idx] = y_processed[y_new_idx]
         # decode newly generated node

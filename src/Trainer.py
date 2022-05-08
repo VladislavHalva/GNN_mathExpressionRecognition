@@ -1,13 +1,16 @@
 import logging
 import os.path
 from datetime import datetime
+from math import ceil
 
 import numpy as np
 import torch
+from matplotlib import pyplot as plt
 from torch import optim
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
+import torch.nn.functional as F
 
 from src.data.CrohmeDataset import CrohmeDataset
 from src.data.LatexVocab import LatexVocab
@@ -37,8 +40,14 @@ class Trainer:
         self.enc_in_size = 400
         self.enc_h_size = 256
         self.enc_out_size = 256
+        self.dec_in_size = 256
         self.dec_h_size = 256
         self.emb_size = 256
+
+        self.enc_vgg_dropout_p = 0.0
+        self.enc_gat_dropout_p = 0.0
+        self.dec_emb_dropout_p = 0.0
+        self.dec_att_dropout_p = 0.0
 
         # use GPU if available
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -65,8 +74,9 @@ class Trainer:
 
         self.model = Model(
             self.device, self.edge_features, self.edge_h_size,
-            self.enc_in_size, self.enc_h_size, self.enc_out_size, self.dec_h_size, self.emb_size,
-            self.vocab_size, self.end_node_token_id, self.tokenizer)
+            self.enc_in_size, self.enc_h_size, self.enc_out_size, self.dec_in_size, self.dec_h_size, self.emb_size,
+            self.vocab_size, self.end_node_token_id, self.tokenizer,
+            self.enc_vgg_dropout_p, self.enc_gat_dropout_p, self.dec_emb_dropout_p, self.dec_att_dropout_p)
         self.model.float()
         if load_model is not None and os.path.exists(load_model):
             self.model.load_state_dict(torch.load(load_model, map_location=self.device))
@@ -104,7 +114,7 @@ class Trainer:
                 'each_nth_epoch': each_nth_epoch
             }
 
-    def train(self, images_root, inkmls_root, epochs, batch_size=1, save_model_dir=None):
+    def train(self, images_root, inkmls_root, epochs, batch_size=1, save_model_dir=None, save_checkpoint_each_nth_epoch=0):
         logging.info("\nTraining...")
 
         optimizer = optim.Adam(self.model.parameters(), lr=0.0003)
@@ -125,7 +135,7 @@ class Trainer:
                 optimizer.zero_grad()
                 out = self.model(data_batch)
 
-                loss = calculate_loss(out, self.end_node_token_id)
+                loss = calculate_loss(out, self.end_node_token_id, self.device)
                 loss.backward()
                 optimizer.step()
 
@@ -139,6 +149,10 @@ class Trainer:
             if self.writer:
                 self.writer.add_scalar('EpochLossTotal/train', epoch_loss, epoch)
                 self.writer.add_scalar('EpochLossAvg/train', epoch_loss / len(trainset), epoch)
+
+            if save_checkpoint_each_nth_epoch != 0 and epoch % save_checkpoint_each_nth_epoch == save_checkpoint_each_nth_epoch - 1:
+                save_model_check_name = self.model_name + '_' + str(epoch) + '.pth'
+                torch.save(self.model.state_dict(), os.path.join(save_model_dir, save_model_check_name))
 
             self.evaluate_training(out.detach(), self.writer, epoch, print_results=True)
 
@@ -182,8 +196,8 @@ class Trainer:
             self.writer.add_scalar('SetSymAcc/train', stats['symbol_acc'], epoch)
             self.writer.add_scalar('SetEdgeAcc/train', stats['edge_acc'], epoch)
         if print_results:
-            logging.info(f" symbol class acc: {stats['symbol_acc']:.3f}%")
-            logging.info(f" edge class acc:   {stats['edge_acc']:.3f}%")
+            logging.info(f" symbol class acc: {stats['symbol_acc']*100:.3f}%")
+            logging.info(f" edge class acc:   {stats['edge_acc']*100:.3f}%")
 
         return stats
 
@@ -220,9 +234,45 @@ class Trainer:
                 data_batch = create_attn_gt(data_batch, self.end_node_token_id)
                 data_batch = data_batch.to(self.device)
 
+                x = data_batch.x
+
                 out = self.model(data_batch)
                 if self.device == torch.device('cuda'):
                     out = out.cpu()
+
+                x_gt_node = out.attn_gt.argmax(dim=0)
+                x_gt = out.tgt_y[x_gt_node]
+                comp_pred = torch.argmax(out.comp_class, dim=1)
+                # print(x_gt)
+                # print(comp_pred)
+
+                for i, y in enumerate(data_batch.tgt_y):
+                    token = self.tokenizer.decode([y.item()], skip_special_tokens=False)
+                    print(token)
+                    y_attn_gt = data_batch.attn_gt[i]
+                    y_attn_gcn1 = out.gcn1_alpha[i]
+                    x_j = x.clone().squeeze(1)
+                    x_a1 = x.clone().squeeze(1)
+                    for i, x_i in enumerate(x_j):
+                        x_j[i] = x_i * y_attn_gt[i]
+                        x_j[i] /= torch.max(x_j[i])
+                    for i, x_i in enumerate(x_a1):
+                        x_a1[i] = x_i * y_attn_gcn1[i]
+                        x_a1[i] /= torch.max(x_a1[i])
+                    cols = 4
+                    rows = ceil(y_attn_gt.shape[0] / cols)
+                    row = 0
+                    col = 0
+                    _, axs = plt.subplots(rows, cols, figsize=(32, 32))
+                    axs = axs.flatten()
+                    for x_i, ax in zip(x_j, axs):
+                        ax.imshow(x_i)
+                    plt.show()
+                    _, axs = plt.subplots(rows, cols, figsize=(32, 32))
+                    axs = axs.flatten()
+                    for x_i, ax in zip(x_a1, axs):
+                        ax.imshow(x_i)
+                    plt.show()
 
                 # split result batch to separate data elements
                 out_elems = split_databatch(out)
@@ -245,7 +295,7 @@ class Trainer:
                         logging.info(f"  pr latex:          {item_stats['latex_pred']}")
                         logging.info(f"  e-distance str:    {item_stats['edit_distance_str']}")
                         logging.info(f"  e-distance seq:    {item_stats['edit_distance_seq']}")
-                        logging.info(f"  seq-sym-pr:        {seq_symbol_precision:.5f}%")
+                        logging.info(f"  seq-sym-pr:        {seq_symbol_precision*100:.5f}%")
                         logging.info(f"  SLT struct-match:  {item_stats['slt_diff']['structure_match']}")
                         logging.info(f"  SLT exact-match:   {item_stats['slt_diff']['exact_match']}")
                         logging.info(f"  SLT exact-match-1: {item_stats['slt_diff']['exact_match_1']}")
@@ -268,10 +318,10 @@ class Trainer:
         stats['edit_distances_seq_avg'] = np.asarray(stats['edit_distances_seq']).mean()
 
         if print_stats:
-            logging.info(f" exact-match:    {stats['exact_match_pct']:.3f}% = {stats['exact_match']}")
-            logging.info(f" exact-match -1: {stats['exact_match_1_pct']:.3f}% = {stats['exact_match_1']}")
-            logging.info(f" exact-match -2: {stats['exact_match_2_pct']:.3f}% = {stats['exact_match_2']}")
-            logging.info(f" struct-match:   {stats['structure_match_pct']:.3f}% = {stats['structure_match']}")
+            logging.info(f" exact-match:    {stats['exact_match_pct']*100:.3f}% = {stats['exact_match']}")
+            logging.info(f" exact-match -1: {stats['exact_match_1_pct']*100:.3f}% = {stats['exact_match_1']}")
+            logging.info(f" exact-match -2: {stats['exact_match_2_pct']*100:.3f}% = {stats['exact_match_2']}")
+            logging.info(f" struct-match:   {stats['structure_match_pct']*100:.3f}% = {stats['structure_match']}")
             logging.info(f" e-dist str avg: {stats['edit_distances_str_avg']:.3f}")
             logging.info(f" e-dist seq avg: {stats['edit_distances_seq_avg']:.3f}")
 

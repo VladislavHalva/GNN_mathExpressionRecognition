@@ -26,22 +26,21 @@ class GCNDecLayer(MessagePassing):
         self.out_size = out_size
         self.is_first = is_first
 
-        self.lin_f_att = Linear(f_size, in_size, bias=True, weight_initializer='glorot')
-        self.lin_f_context = Linear(f_size, out_size, bias=True, weight_initializer='glorot')
+        self.lin_f_att = Linear(f_size, in_size, bias=False, weight_initializer='glorot')
+        self.lin_f_context = Linear(f_size, out_size, bias=False, weight_initializer='glorot')
 
-        self.lin_gg = Linear(in_size, out_size, bias=True, weight_initializer='glorot')
-        self.lin_pc = Linear(in_size, out_size, bias=True, weight_initializer='glorot')
-        self.lin_bb = Linear(in_size, out_size, bias=True, weight_initializer='glorot')
-        self.lin_cc = Linear(in_size, out_size, bias=True, weight_initializer='glorot')
+        self.lin_gg = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
+        self.lin_pc = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
+        self.lin_bb = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
+        self.lin_cc = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
 
-        self.lin_h = Linear(out_size, in_size, bias=True, weight_initializer='glorot')
-        self.lin_z = Linear(out_size, out_size, bias=True, weight_initializer='glorot')
+        self.lin_h = Linear(out_size, in_size, bias=False, weight_initializer='glorot')
+        self.lin_z = Linear(out_size, out_size, bias=False, weight_initializer='glorot')
 
         self.bias = Parameter(torch.Tensor(out_size))
         self.reset_parameters()
 
         self.alpha_values = None
-        self.log_alpha_values = None
 
     def reset_parameters(self):
         self.lin_f_att.reset_parameters()
@@ -81,7 +80,7 @@ class GCNDecLayer(MessagePassing):
         cc_edges_mask = (edge_type == SltEdgeTypes.CURRENT_CURRENT).to(torch.long).unsqueeze(1)
 
         # propagate messages in neigh. and get attn to src graph - message method
-        out = self.propagate(
+        out, alpha = self.propagate(
             edge_index=edge_index, x=x, f=f,
             gg_h=gg_h, pc_h=pc_h, bb_h=bb_h, cc_h=cc_h,
             gg_edges_mask=gg_edges_mask, pc_edges_mask=pc_edges_mask,
@@ -90,7 +89,7 @@ class GCNDecLayer(MessagePassing):
             size=None)
         out += self.bias
 
-        return out
+        return out, alpha
 
     def message(self, x_j, gg_h_j, pc_h_j, bb_h_j, cc_h_j, gg_edges_mask, pc_edges_mask, bb_edges_mask, cc_edges_mask):
         # get node features lin. transformation based on the connection type to current node
@@ -141,11 +140,13 @@ class GCNDecLayer(MessagePassing):
         # mask batch - values belonging to the same input
         alpha_batch_mask = (x_batch.unsqueeze(1) - f_batch.unsqueeze(0) == 0).long()
         # this adjustment to softmax leaves zeros where they used to be
+        self.alpha_values = alpha * alpha_batch_mask
         alpha = F.softmax(alpha.masked_fill((1 - alpha_batch_mask).bool(), float('-inf')), dim=1)
-        self.alpha_values = alpha
+        # alpha = F.dropout(alpha, p=0.2, training=self.training)
+        # h = F.dropout(h, p=0.2, training=self.training)
         # build context vectors based on attention to source graph
         c = alpha @ f_context
         # combine context vector and feature vector acquired from graph convolution
         z = h + c
         z = self.lin_z(z)
-        return z
+        return z, alpha
