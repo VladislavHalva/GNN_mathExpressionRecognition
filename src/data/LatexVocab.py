@@ -20,7 +20,7 @@ from src.utils.utils import mathml_unicode_to_latex_label
 
 class LatexVocab:
     @staticmethod
-    def generate_formulas_file_from_inkmls(inkmls_root, tgt_file, latex_gt=True, mathml_gt=False):
+    def generate_formulas_file_from_inkmls(inkmls_root, tgt_file, substitute_terms=False, latex_gt=True, mathml_gt=False):
         if not os.path.exists(inkmls_root):
             raise FileNotFoundError('Inkmls directory not found')
 
@@ -78,11 +78,11 @@ class LatexVocab:
                             formulas.append("{ }")
                             # different namespaces in various types of annotation
                             if annotation_type == MathMLAnnotationType.CONTENT:
-                                file_symbols = LatexVocab.mathml_symbols_dfs(xml_namespace, mathml_namespace, math_root)
+                                file_symbols = LatexVocab.mathml_symbols_dfs(xml_namespace, mathml_namespace, math_root, substitute_terms)
                             else:
-                                file_symbols = LatexVocab.mathml_symbols_dfs(xml_namespace, doc_namespace, math_root)
+                                file_symbols = LatexVocab.mathml_symbols_dfs(xml_namespace, doc_namespace, math_root, substitute_terms)
                             for i, symbol in enumerate(file_symbols):
-                                file_symbols[i] = mathml_unicode_to_latex_label(symbol)
+                                file_symbols[i] = mathml_unicode_to_latex_label(symbol, True)
                             file_symbols = " ".join(file_symbols)
                             formulas.append(file_symbols)
                         except AttributeError as e:
@@ -104,10 +104,16 @@ class LatexVocab:
         logging.info('Formulas written to ' + tgt_file)
 
     @staticmethod
-    def mathml_symbols_dfs(xml_ns, mathml_ns, root):
+    def mathml_symbols_dfs(xml_ns, mathml_ns, root, substitute_terms=False):
         if root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mo', mathml_ns + 'mtext',
                         mathml_ns + 'mspace', mathml_ns + 'ms']:
-            return [root.text]
+            if substitute_terms:
+                if root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mtext']:
+                    return ['<TERM>']
+                else:
+                    return [root.text]
+            else:
+                return [root.text]
         else:
             subtree_symbols = []
             if root.tag == mathml_ns + 'msqrt':
@@ -132,7 +138,7 @@ class LatexVocab:
                 subtree_symbols.append(r'\frac')
 
             for child in root:
-                subtree_symbols.extend(LatexVocab.mathml_symbols_dfs(xml_ns, mathml_ns, child))
+                subtree_symbols.extend(LatexVocab.mathml_symbols_dfs(xml_ns, mathml_ns, child, substitute_terms))
             return subtree_symbols
 
     @staticmethod

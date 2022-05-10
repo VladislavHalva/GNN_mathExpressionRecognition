@@ -4,10 +4,10 @@ import shutil
 
 
 def cpy_images_inkml_gt():
-    orig_images_root = 'assets/crohme/train/img'
-    orig_inkmls_root = 'assets/crohme/train/inkml'
-    tgt_images_root = 'assets/crohme/train_simple/img'
-    tgt_inkmls_root = 'assets/crohme/train_simple/inkml'
+    orig_images_root = 'assets/crohme/test/img'
+    orig_inkmls_root = 'assets/crohme/test/inkml'
+    tgt_images_root = 'assets/crohme/test_simple/img'
+    tgt_inkmls_root = 'assets/crohme/test_simple/inkml'
     for subdir, _, files in os.walk(tgt_images_root):
         for file in files:
             image_file = file

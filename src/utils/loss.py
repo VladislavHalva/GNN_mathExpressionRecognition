@@ -44,25 +44,28 @@ def calculate_loss(out, end_node_token_id, device):
         ), dim=0)
     gcn_alpha_avg = torch.mean(gcn_alpha_avg, dim=0)
 
-    alpha_batch_mask = (out.y_batch.unsqueeze(1) - out.x_batch.unsqueeze(0) == 0).long()
+    # alpha_batch_mask = (out.y_batch.unsqueeze(1) - out.x_batch.unsqueeze(0) == 0).long()
     no_end_node_indices = (out.tgt_y != end_node_token_id).long()
     no_end_node_mask = no_end_node_indices.unsqueeze(1).repeat(1, out.x.shape[0])
-    alpha_mask = (alpha_batch_mask + no_end_node_mask == 2).long()
+    # do not calculate loss for end leaf nodes attention
+    gcn_alpha_avg = gcn_alpha_avg * no_end_node_mask
 
-    no_end_node_indices = no_end_node_indices.nonzero(as_tuple=False).view(-1)
-    no_end_node_attn = out.attn_gt[no_end_node_indices]
-    component_attn_sum = torch.sum(no_end_node_attn, dim=0)
-
-    loss_gcn_alpha_avg = masked_mse_loss(
-        (gcn_alpha_avg),
-        (out.attn_gt),
-        alpha_mask
-    )
-
-    loss_attn_coverage = F.mse_loss(
-        component_attn_sum.double(),
-        torch.ones(component_attn_sum.shape, dtype=torch.double).to(device)
+    loss_gcn_alpha_avg = F.mse_loss(
+        gcn_alpha_avg.double(),
+        out.attn_gt.double()
     ).float()
+
+    # loss_gcn_alpha_avg = masked_mse_loss(
+    #     (gcn_alpha_avg),
+    #     (out.attn_gt),
+    #     alpha_mask
+    # )
+
+    # loss_gcn_alpha_avg = F.kl_div(
+    #     F.log_softmax(gcn_alpha_avg, dim=1),
+    #     F.log_softmax(out.attn_gt, dim=1),
+    #     reduction='batchmean', log_target=True
+    # )
 
     # calculate loss for output graph SRT edge type predictions - take in account only parent-child edges
     tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
@@ -70,5 +73,5 @@ def calculate_loss(out, end_node_token_id, device):
     out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
     loss_out_edge = F.cross_entropy(out_pc_edge_relation, tgt_pc_edge_relation)
 
-    loss = loss_out_node + loss_out_edge + 0.5 * loss_comp_class + 0.5 * loss_enc_nodes + 0.5 * loss_end_nodes + 0.3 * loss_gcn_alpha_avg + 0.3 * loss_attn_coverage
+    loss = loss_out_node + loss_out_edge + 0.5 * loss_comp_class + 0.5 * loss_enc_nodes + 0.5 * loss_end_nodes + 0.5 * loss_gcn_alpha_avg
     return loss

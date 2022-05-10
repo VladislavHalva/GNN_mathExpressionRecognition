@@ -23,9 +23,9 @@ class Decoder(nn.Module):
         self.emb_dropout_p = emb_dropout_p
 
         self.embeds = nn.Embedding(vocab_size, in_size)
-        self.gcn1 = DecoderBlock(device, f_size, in_size, h_size, att_dropout_p, is_first=True)
-        self.gcn2 = DecoderBlock(device, f_size, h_size, h_size, att_dropout_p, is_first=False)
-        self.gcn3 = DecoderBlock(device, f_size, h_size, emb_size, att_dropout_p, is_first=False)
+        self.gcn1 = DecoderBlock(device, f_size, in_size, h_size, att_dropout_p, in_size, is_first=True)
+        self.gcn2 = DecoderBlock(device, f_size, h_size, h_size, att_dropout_p, in_size, is_first=False)
+        self.gcn3 = DecoderBlock(device, f_size, h_size, emb_size, att_dropout_p, in_size, is_first=False)
 
         self.lin_z_out = nn.Linear(emb_size, vocab_size, bias=True)
         self.lin_g_out = nn.Linear(2 * emb_size, len(SrtEdgeTypes))
@@ -49,10 +49,12 @@ class Decoder(nn.Module):
             y_edge_index = tgt_edge_index
             y_edge_type = tgt_edge_type
             y_batch = tgt_y_batch
+            # store init y embeds for attention purposes
+            y_init = y
             # gcn layers
-            y, gcn1_alpha = self.gcn1(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
-            y, gcn2_alpha = self.gcn2(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
-            y, gcn3_alpha = self.gcn3(x, y, y_edge_index, y_edge_type, x_batch, y_batch)
+            y, gcn1_alpha = self.gcn1(x, y, y_edge_index, y_edge_type, x_batch, y_batch, y_init)
+            y, gcn2_alpha = self.gcn2(x, y, y_edge_index, y_edge_type, x_batch, y_batch, y_init)
+            y, gcn3_alpha = self.gcn3(x, y, y_edge_index, y_edge_type, x_batch, y_batch, y_init)
             # save attention coefficients mask
         else:
             y, y_batch, y_edge_index, y_edge_type = self.gen_graph(x, x_batch)
@@ -112,9 +114,9 @@ class Decoder(nn.Module):
                 y_eindex, y_etype = self.create_edge(y_eindex, y_etype, ls_ids[i_batch], y_new_idx[i], SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER)
         # process with GCNs
         y_processed = torch.clone(y_init)
-        y_processed, gcn1_alpha = self.gcn1(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
-        y_processed, gcn2_alpha = self.gcn2(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
-        y_processed, gcn3_alpha = self.gcn3(x, y_processed, y_eindex, y_etype, x_batch, y_batch)
+        y_processed, gcn1_alpha = self.gcn1(x, y_processed, y_eindex, y_etype, x_batch, y_batch, y_init)
+        y_processed, gcn2_alpha = self.gcn2(x, y_processed, y_eindex, y_etype, x_batch, y_batch, y_init)
+        y_processed, gcn3_alpha = self.gcn3(x, y_processed, y_eindex, y_etype, x_batch, y_batch, y_init)
         # save attention coefficients - for analysis purposes only
         # the ones from last node generation will be returned
         self.gcn1_alpha_eval = gcn1_alpha

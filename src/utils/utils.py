@@ -31,10 +31,10 @@ def create_attn_gt(data_batch, end_node_token_id):
         batch_masks.append(batch_mask)
     # set attention for end leaf nodes as uniform among all components belonging to the same batch item
     # --> whole formula
-    for i, y_i in enumerate(data_batch.tgt_y):
-        if y_i == end_node_token_id:
-            batch_index = data_batch.tgt_y_batch[i]
-            attn_gt[i][batch_masks[batch_index]] = 1 / batch_masks[batch_index].shape[0]
+    # for i, y_i in enumerate(data_batch.tgt_y):
+    #     if y_i == end_node_token_id:
+    #         batch_index = data_batch.tgt_y_batch[i]
+    #         attn_gt[i][batch_masks[batch_index]] = 1 / batch_masks[batch_index].shape[0]
 
     data_batch.attn_gt = attn_gt
     return data_batch

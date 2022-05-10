@@ -5,7 +5,9 @@ from math import sqrt, ceil
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import cv2 as cv
+import imutils
 import numpy as np
+import scipy.ndimage
 import torch
 import imghdr
 import logging
@@ -27,7 +29,7 @@ from src.utils.utils import mathml_unicode_to_latex_label
 
 
 class CrohmeDataset(Dataset):
-    def __init__(self, images_root, inkmls_root, tokenizer, components_shape=(32, 32), tmp_path=None):
+    def __init__(self, images_root, inkmls_root, tokenizer, components_shape=(32, 32), tmp_path=None, substitute_terms=False, img_transform=False):
         self.images_root = images_root
         self.inkmls_root = inkmls_root
         self.tokenizer = tokenizer
@@ -35,6 +37,8 @@ class CrohmeDataset(Dataset):
         self.edge_features = 19
         self.items = []
         self.tmp_path = tmp_path
+        self.substitute_terms = substitute_terms
+        self.img_transform= img_transform
 
         if not os.path.exists(self.images_root):
             raise FileNotFoundError('Images directory not found')
@@ -122,6 +126,14 @@ class CrohmeDataset(Dataset):
         # input components images
         component_images = [component['image'] for component in components]
         component_images = np.array(component_images)
+
+        # image rotation code - backup
+        if self.img_transform:
+            for i, component_image in enumerate(component_images):
+                rotation_angle = float(random.randint(-30, 30))
+                component_image = imutils.rotate(component_image, angle=rotation_angle)
+                component_images[i] = component_image
+
         x = torch.tensor(
             component_images,
             dtype=torch.float)
@@ -208,7 +220,8 @@ class CrohmeDataset(Dataset):
             component = cv.resize(component, self.components_shape, interpolation=cv.INTER_AREA)
             # and binarize again - if INTER_NEAREST is used, gaps appear within symbols
             _, component = cv.threshold(component, 128, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
-
+            # invert so that bg is zero
+            component = 255 - component
             components.append({
                 'image': component,
                 'bbox': [
@@ -618,11 +631,25 @@ class CrohmeDataset(Dataset):
         elif root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mo', mathml_ns + 'mtext',
                           mathml_ns + 'mspace', mathml_ns + 'ms']:
             id = root.attrib.get(xml_ns + 'id')
-            s.append({
-                'id': id,
-                'symbol': root.text
-            })
-            sequence = [root.text]
+            if self.substitute_terms:
+                if root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mtext']:
+                    s.append({
+                        'id': id,
+                        'symbol': '<TERM>'
+                    })
+                    sequence = ['<TERM>']
+                else:
+                    s.append({
+                        'id': id,
+                        'symbol': root.text
+                    })
+                    sequence = [root.text]
+            else:
+                s.append({
+                    'id': id,
+                    'symbol': root.text
+                })
+                sequence = [root.text]
             return s, r, sequence, id
         else:
             raise ItemLoadError('unknown MathML element: ' + root.tag)

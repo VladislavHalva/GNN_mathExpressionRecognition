@@ -6,7 +6,7 @@ from math import ceil
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
-from torch import optim
+from torch import optim, nn
 from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
@@ -37,7 +37,7 @@ class Trainer:
         self.components_shape = (32, 32)
         self.edge_features = 19
         self.edge_h_size = 128
-        self.enc_in_size = 400
+        self.enc_in_size = 256
         self.enc_h_size = 256
         self.enc_out_size = 256
         self.dec_in_size = 256
@@ -49,6 +49,8 @@ class Trainer:
         self.dec_emb_dropout_p = 0.0
         self.dec_att_dropout_p = 0.0
 
+        self.substitute_terms = False
+
         # use GPU if available
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logging.info(f"Device: {self.device}")
@@ -58,7 +60,8 @@ class Trainer:
             self.tokenizer = LatexVocab.load_tokenizer(tokenizer_path)
             logging.info(f"Tokenizer loaded from: {tokenizer_path}")
         elif inkml_folder_vocab is not None and vocab_path is not None and os.path.exists(vocab_path) and os.path.exists(inkml_folder_vocab):
-            LatexVocab.generate_formulas_file_from_inkmls(inkml_folder_vocab, vocab_path, latex_gt=True, mathml_gt=True)
+            include_latex_gt = not self.substitute_terms
+            LatexVocab.generate_formulas_file_from_inkmls(inkml_folder_vocab, vocab_path, substitute_terms=self.substitute_terms, latex_gt=include_latex_gt, mathml_gt=True)
             self.tokenizer = LatexVocab.create_tokenizer(vocab_path, min_freq=2)
             LatexVocab.save_tokenizer(self.tokenizer, tokenizer_path)
             logging.info(f"Tokenizer created as: {tokenizer_path}")
@@ -119,13 +122,19 @@ class Trainer:
 
         optimizer = optim.Adam(self.model.parameters(), lr=0.0003)
 
-        trainset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path)
+        trainset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path, self.substitute_terms, img_transform=True)
         trainloader = DataLoader(trainset, batch_size, True, follow_batch=['x', 'tgt_y'])
 
         self.model.train()
 
         for epoch in range(epochs):
             epoch_loss = 0
+            epoch_stats = {
+                'symbol_count': 0,
+                'correct_symbol_count': 0,
+                'edge_count': 0,
+                'correct_edge_count': 0
+            }
             logging.info(f"\nEPOCH: {epoch}")
 
             for i, data_batch in enumerate(tqdm(trainloader)):
@@ -137,6 +146,10 @@ class Trainer:
 
                 loss = calculate_loss(out, self.end_node_token_id, self.device)
                 loss.backward()
+
+                # gradient clipping
+                nn.utils.clip_grad_value_(self.model.parameters(), clip_value=1.0)
+
                 optimizer.step()
 
                 epoch_loss += loss.item()
@@ -154,7 +167,22 @@ class Trainer:
                 save_model_check_name = self.model_name + '_' + str(epoch) + '.pth'
                 torch.save(self.model.state_dict(), os.path.join(save_model_dir, save_model_check_name))
 
-            self.evaluate_training(out.detach(), self.writer, epoch, print_results=True)
+            batch_stats = self.evaluate_training(out.detach())
+            epoch_stats['symbol_count'] += batch_stats['symbol_count']
+            epoch_stats['correct_symbol_count'] += batch_stats['correct_symbol_count']
+            epoch_stats['edge_count'] += batch_stats['edge_count']
+            epoch_stats['correct_edge_count'] += batch_stats['correct_edge_count']
+
+            epoch_stats['symbol_acc'] = epoch_stats['correct_symbol_count'] / epoch_stats['symbol_count'] if epoch_stats['symbol_count'] > 0 else 0
+            epoch_stats['edge_acc'] = epoch_stats['correct_edge_count'] / epoch_stats['edge_count'] if epoch_stats['edge_count'] > 0 else 0
+
+            if self.writer:
+                self.writer.add_scalar('SetSymAcc/train', epoch_stats['symbol_acc'], epoch)
+                self.writer.add_scalar('SetEdgeAcc/train', epoch_stats['edge_acc'], epoch)
+
+            logging.info(f" symbol class acc: {epoch_stats['symbol_acc'] * 100:.3f}%")
+            logging.info(f" edge class acc:   {epoch_stats['edge_acc'] * 100:.3f}%")
+
 
             if self.eval_during_training and epoch % self.eval_train_settings['each_nth_epoch'] == self.eval_train_settings['each_nth_epoch'] - 1:
                 self.evaluate(
@@ -171,7 +199,7 @@ class Trainer:
             torch.save(self.model.state_dict(), os.path.join(save_model_dir, save_model_final_name))
             logging.info(f"Model saved as: {os.path.join(save_model_dir, save_model_final_name)}")
 
-    def evaluate_training(self, data, writer, epoch=None, print_results=False):
+    def evaluate_training(self, data):
         stats = {}
 
         # evaluate nodes predictions = symbols
@@ -189,16 +217,6 @@ class Trainer:
         stats['edge_count'] = tgt_pc_edge_relation.shape[0]
         stats['correct_edge_count'] = torch.sum((tgt_pc_edge_relation == out_pc_edge_relation))
 
-        stats['symbol_acc'] = stats['correct_symbol_count'] / stats['symbol_count'] if stats['symbol_count'] > 0 else 0
-        stats['edge_acc'] = stats['correct_edge_count'] / stats['edge_count'] if stats['edge_count'] > 0 else 0
-
-        if writer and epoch is not None:
-            self.writer.add_scalar('SetSymAcc/train', stats['symbol_acc'], epoch)
-            self.writer.add_scalar('SetEdgeAcc/train', stats['edge_acc'], epoch)
-        if print_results:
-            logging.info(f" symbol class acc: {stats['symbol_acc']*100:.3f}%")
-            logging.info(f" edge class acc:   {stats['edge_acc']*100:.3f}%")
-
         return stats
 
     def evaluate(self, images_root, inkmls_root, batch_size=1, writer=False, epoch=None, print_stats=True,
@@ -210,7 +228,7 @@ class Trainer:
             store_results_dir = None
 
         # load data
-        testset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path)
+        testset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path, self.substitute_terms)
         testloader = DataLoader(testset, batch_size, False, follow_batch=['x', 'tgt_y', 'gt', 'gt_ml', 'filename'])
 
         # init statistics
@@ -246,33 +264,33 @@ class Trainer:
                 # print(x_gt)
                 # print(comp_pred)
 
-                for i, y in enumerate(data_batch.tgt_y):
-                    token = self.tokenizer.decode([y.item()], skip_special_tokens=False)
-                    print(token)
-                    y_attn_gt = data_batch.attn_gt[i]
-                    y_attn_gcn1 = out.gcn1_alpha[i]
-                    x_j = x.clone().squeeze(1)
-                    x_a1 = x.clone().squeeze(1)
-                    for i, x_i in enumerate(x_j):
-                        x_j[i] = x_i * y_attn_gt[i]
-                        x_j[i] /= torch.max(x_j[i])
-                    for i, x_i in enumerate(x_a1):
-                        x_a1[i] = x_i * y_attn_gcn1[i]
-                        x_a1[i] /= torch.max(x_a1[i])
-                    cols = 4
-                    rows = ceil(y_attn_gt.shape[0] / cols)
-                    row = 0
-                    col = 0
-                    _, axs = plt.subplots(rows, cols, figsize=(32, 32))
-                    axs = axs.flatten()
-                    for x_i, ax in zip(x_j, axs):
-                        ax.imshow(x_i)
-                    plt.show()
-                    _, axs = plt.subplots(rows, cols, figsize=(32, 32))
-                    axs = axs.flatten()
-                    for x_i, ax in zip(x_a1, axs):
-                        ax.imshow(x_i)
-                    plt.show()
+                # for i, y in enumerate(data_batch.tgt_y):
+                #     token = self.tokenizer.decode([y.item()], skip_special_tokens=False)
+                #     print(token)
+                #     y_attn_gt = data_batch.attn_gt[i]
+                #     y_attn_gcn1 = out.gcn2_alpha[i]
+                #     x_j = x.clone().squeeze(1)
+                #     x_a1 = x.clone().squeeze(1)
+                #     for i, x_i in enumerate(x_j):
+                #         x_j[i] = x_i * y_attn_gt[i]
+                #         x_j[i] /= torch.max(x_j[i])
+                #     for i, x_i in enumerate(x_a1):
+                #         x_a1[i] = x_i * y_attn_gcn1[i]
+                #         x_a1[i] /= torch.max(x_a1[i])
+                #     cols = 4
+                #     rows = ceil(y_attn_gt.shape[0] / cols)
+                #     row = 0
+                #     col = 0
+                #     _, axs = plt.subplots(rows, cols, figsize=(32, 32))
+                #     axs = axs.flatten()
+                #     for x_i, ax in zip(x_j, axs):
+                #         ax.imshow(x_i)
+                #     plt.show()
+                #     _, axs = plt.subplots(rows, cols, figsize=(32, 32))
+                #     axs = axs.flatten()
+                #     for x_i, ax in zip(x_a1, axs):
+                #         ax.imshow(x_i)
+                #     plt.show()
 
                 # split result batch to separate data elements
                 out_elems = split_databatch(out)

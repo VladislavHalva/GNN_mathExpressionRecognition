@@ -9,25 +9,26 @@ from src.model.GCN import GCN
 
 
 class DecoderBlock(nn.Module):
-    def __init__(self, device, f_size, in_size, out_size, att_dropout_p, is_first=False):
+    def __init__(self, device, f_size, in_size, out_size, att_dropout_p, init_size, is_first=False):
         super(DecoderBlock, self).__init__()
         self.device = device
         self.f_size = f_size
         self.in_size = in_size
         self.out_size = out_size
+        self.init_size = init_size
         self.is_first = is_first
 
         self.gcn = GCN(device, in_size, out_size, is_first)
-        self.attBlock = AttBlock(device, f_size, in_size, out_size, att_dropout_p)
+        self.attBlock = AttBlock(device, f_size, in_size, out_size, init_size, att_dropout_p)
 
         self.lin = Linear(out_size, out_size, bias=False, weight_initializer='glorot')
 
     def reset_parameters(self):
         self.lin.reset_parameters()
 
-    def forward(self, f, x, edge_index, edge_type, f_batch, x_batch):
+    def forward(self, f, x, edge_index, edge_type, f_batch, x_batch, x_init):
         h = self.gcn(x, edge_index, edge_type)
-        c, alpha = self.attBlock(f, x, h, edge_index, edge_type, f_batch, x_batch)
+        c, alpha = self.attBlock(f, x, h, edge_index, edge_type, f_batch, x_batch, x_init)
 
         z = h + c
         z = self.lin(z)
