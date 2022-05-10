@@ -7,6 +7,8 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ModelParamsError import ModelParamsError
 from src.model.DecoderBlock import DecoderBlock
+from src.model.GCNDecLayer import GCNDecLayer
+
 
 class Decoder(nn.Module):
     def __init__(self, device, f_size, in_size, h_size, emb_size, vocab_size, end_node_token_id, tokenizer, emb_dropout_p, att_dropout_p):
@@ -23,9 +25,9 @@ class Decoder(nn.Module):
         self.emb_dropout_p = emb_dropout_p
 
         self.embeds = nn.Embedding(vocab_size, in_size)
-        self.gcn1 = DecoderBlock(device, f_size, in_size, h_size, att_dropout_p, in_size, is_first=True)
-        self.gcn2 = DecoderBlock(device, f_size, h_size, h_size, att_dropout_p, in_size, is_first=False)
-        self.gcn3 = DecoderBlock(device, f_size, h_size, emb_size, att_dropout_p, in_size, is_first=False)
+        self.gcn1 = GCNDecLayer(device, f_size, in_size, h_size, att_dropout_p, in_size, is_first=True)
+        self.gcn2 = GCNDecLayer(device, f_size, h_size, h_size, att_dropout_p, in_size, is_first=False)
+        self.gcn3 = GCNDecLayer(device, f_size, h_size, emb_size, att_dropout_p, in_size, is_first=False)
 
         self.lin_z_out = nn.Linear(emb_size, vocab_size, bias=True)
         self.lin_g_out = nn.Linear(2 * emb_size, len(SrtEdgeTypes))
@@ -119,9 +121,6 @@ class Decoder(nn.Module):
         y_processed, gcn3_alpha = self.gcn3(x, y_processed, y_eindex, y_etype, x_batch, y_batch, y_init)
         # save attention coefficients - for analysis purposes only
         # the ones from last node generation will be returned
-        self.gcn1_alpha_eval = gcn1_alpha
-        self.gcn2_alpha_eval = gcn2_alpha
-        self.gcn3_alpha_eval = gcn3_alpha
         # update value only for newly created node
         y[y_new_idx] = y_processed[y_new_idx]
         # decode newly generated node

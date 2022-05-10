@@ -1,3 +1,4 @@
+import pyvisgraph as vg
 import os
 import pickle
 import random
@@ -13,6 +14,7 @@ import imghdr
 import logging
 from shapely.geometry import Polygon, LineString
 from matplotlib import pyplot as plt
+from shapely.ops import nearest_points
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
 import networkx as nx
@@ -252,6 +254,7 @@ class CrohmeDataset(Dataset):
                 for c_idx in [x for x in range(len(components)) if x != i and x != j]:
                     c_bbox = components[c_idx]['bbox']
                     collides = self.line_and_rect_intersect([startpoint, endpoint], c_bbox)
+
                     if collides:
                         some_collision = True
                         break
@@ -1064,20 +1067,3 @@ class CrohmeDataset(Dataset):
         nx.draw(G, pos, with_labels=True)
         plt.draw()
         plt.show()
-
-    def symbols_to_commands_if_possible(self, symbols):
-        sp_symbols = self.get_special_symbols_list()
-        for i, symbol in enumerate(symbols):
-            if symbol['symbol'] in sp_symbols:
-                symbols[i]['symbol'] = "\\" + symbols[i]['symbol']
-        return symbols
-
-    def get_special_symbols_list(self):
-        return [
-            'frac', 'sqrt', 'lim', 'log', 'int',
-            'sum', 'cos', 'sin', 'tan', 'cot', 'forall',
-            'exists', 'infty',
-            'alpha', 'beta', 'gamma', 'delta', 'sigma', 'mu', 'phi', 'pi', 'theta', 'lambda',
-            'Alpha', 'Beta', 'Gamma', 'Delta', 'Sigma', 'Mu', 'Phi', 'Pi', 'Theta', 'Lambda',
-            'prime', 'times'
-        ]

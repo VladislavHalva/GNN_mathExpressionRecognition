@@ -8,7 +8,7 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 
 
 class GCNDecLayer(MessagePassing):
-    def __init__(self, device, f_size, in_size, out_size, is_first=False):
+    def __init__(self, device, f_size, in_size, out_size, att_dropout_p, init_size, is_first=False):
         """
         :param device: torch device - cpu/gpu
         :param f_size: input graph features size
@@ -25,8 +25,10 @@ class GCNDecLayer(MessagePassing):
         self.in_size = in_size
         self.out_size = out_size
         self.is_first = is_first
+        self.init_size = init_size
+        self.att_dropout_p = att_dropout_p
 
-        self.lin_f_att = Linear(f_size, in_size, bias=False, weight_initializer='glorot')
+        self.lin_f_att = Linear(f_size, init_size, bias=False, weight_initializer='glorot')
         self.lin_f_context = Linear(f_size, out_size, bias=False, weight_initializer='glorot')
 
         self.lin_gg = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
@@ -34,7 +36,7 @@ class GCNDecLayer(MessagePassing):
         self.lin_bb = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
         self.lin_cc = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
 
-        self.lin_h = Linear(out_size, in_size, bias=False, weight_initializer='glorot')
+        self.lin_h = Linear(out_size, init_size, bias=False, weight_initializer='glorot')
         self.lin_z = Linear(out_size, out_size, bias=False, weight_initializer='glorot')
 
         self.bias = Parameter(torch.Tensor(out_size))
@@ -53,7 +55,7 @@ class GCNDecLayer(MessagePassing):
         self.lin_z.reset_parameters()
         zeros(self.bias)
 
-    def forward(self, f, x, edge_index, edge_type, f_batch, x_batch):
+    def forward(self, f, x, edge_index, edge_type, f_batch, x_batch, x_init):
         """
         :param f: source graph features
         :param x: output graph features
@@ -85,13 +87,13 @@ class GCNDecLayer(MessagePassing):
             gg_h=gg_h, pc_h=pc_h, bb_h=bb_h, cc_h=cc_h,
             gg_edges_mask=gg_edges_mask, pc_edges_mask=pc_edges_mask,
             bb_edges_mask=bb_edges_mask, cc_edges_mask=cc_edges_mask,
-            f_batch=f_batch, x_batch=x_batch,
+            f_batch=f_batch, x_batch=x_batch, x_init=x_init,
             size=None)
         out += self.bias
 
         return out, alpha
 
-    def message(self, x_j, gg_h_j, pc_h_j, bb_h_j, cc_h_j, gg_edges_mask, pc_edges_mask, bb_edges_mask, cc_edges_mask):
+    def message(self, x_j, gg_h_j, pc_h_j, bb_h_j, cc_h_j, gg_edges_mask, pc_edges_mask, bb_edges_mask, cc_edges_mask, x_init_j):
         # get node features lin. transformation based on the connection type to current node
         gg_h_j_masked = gg_h_j * gg_edges_mask
         pc_h_j_masked = pc_h_j * pc_edges_mask
@@ -102,8 +104,8 @@ class GCNDecLayer(MessagePassing):
         h_j = torch.sum(torch.stack([gg_h_j_masked, pc_h_j_masked, bb_h_j_masked, cc_h_j_masked]), dim=0)
 
         # get brother and parent node features for each node for attention in update (old values)
-        x_bro_j = x_j * bb_edges_mask
-        x_pa_j = x_j * pc_edges_mask
+        x_bro_j = x_init_j * bb_edges_mask
+        x_pa_j = x_init_j * pc_edges_mask
 
         # pad and stack hidden message, and parent+brother features for node in (packing)
         if h_j.size(1) > x_bro_j.size(1):
@@ -128,8 +130,8 @@ class GCNDecLayer(MessagePassing):
         # get slices == unpack
         x_bro, x_pa, h = torch.unbind(packed_msg, dim=0)
         # remove padding added due to stacking
-        x_bro = x_bro[:, 0:self.in_size]
-        x_pa = x_pa[:, 0:self.in_size]
+        x_bro = x_bro[:, 0:self.init_size]
+        x_pa = x_pa[:, 0:self.init_size]
         h = h[:, 0:self.out_size]
         # GLU activation on h - gcn feature vector
         h_in_and_condition = torch.cat([h, h], dim=1)
@@ -142,8 +144,7 @@ class GCNDecLayer(MessagePassing):
         # this adjustment to softmax leaves zeros where they used to be
         self.alpha_values = alpha * alpha_batch_mask
         alpha = F.softmax(alpha.masked_fill((1 - alpha_batch_mask).bool(), float('-inf')), dim=1)
-        # alpha = F.dropout(alpha, p=0.2, training=self.training)
-        # h = F.dropout(h, p=0.2, training=self.training)
+        alpha = F.dropout(alpha, p=self.att_dropout_p, training=self.training)
         # build context vectors based on attention to source graph
         c = alpha @ f_context
         # combine context vector and feature vector acquired from graph convolution

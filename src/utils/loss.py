@@ -50,7 +50,7 @@ def calculate_loss(out, end_node_token_id, device):
     # do not calculate loss for end leaf nodes attention
     gcn_alpha_avg = gcn_alpha_avg * no_end_node_mask
 
-    loss_gcn_alpha_avg = F.mse_loss(
+    loss_gcn_alpha_avg = F.l1_loss(
         gcn_alpha_avg.double(),
         out.attn_gt.double()
     ).float()
@@ -73,5 +73,11 @@ def calculate_loss(out, end_node_token_id, device):
     out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
     loss_out_edge = F.cross_entropy(out_pc_edge_relation, tgt_pc_edge_relation)
 
+    # losses_out_edge = F.cross_entropy(out.y_edge_rel_score, out.tgt_edge_relation, reduction='none')
+    # tgt_edge_pc_mask = (out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).long()
+    # losses_out_edge = losses_out_edge * tgt_edge_pc_mask
+    # loss_out_edge = torch.mean(losses_out_edge)
+
     loss = loss_out_node + loss_out_edge + 0.5 * loss_comp_class + 0.5 * loss_enc_nodes + 0.5 * loss_end_nodes + 0.5 * loss_gcn_alpha_avg
+    loss = loss_out_node + loss_out_edge + 0.5 * loss_comp_class + 0.5 * loss_enc_nodes + 0.5 * loss_gcn_alpha_avg
     return loss

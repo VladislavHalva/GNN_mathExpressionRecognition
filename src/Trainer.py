@@ -36,10 +36,10 @@ class Trainer:
         # define metaparameters
         self.components_shape = (32, 32)
         self.edge_features = 19
-        self.edge_h_size = 128
+        self.edge_h_size = 64
         self.enc_in_size = 256
         self.enc_h_size = 256
-        self.enc_out_size = 256
+        self.enc_out_size = 128
         self.dec_in_size = 256
         self.dec_h_size = 256
         self.emb_size = 256

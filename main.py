@@ -10,7 +10,7 @@ if __name__ == '__main__':
     logging.getLogger('matplotlib.font_manager').disabled = True
 
     train = True
-    evaluate = False
+    evaluate = True
 
     trainer = Trainer(
         model_name='MER_tSimple_eSimple',
@@ -18,8 +18,8 @@ if __name__ == '__main__':
         vocab_path='assets/vocab.txt',
         load_vocab=True,
         inkml_folder_vocab='assets/crohme/train/inkml',
-        load_model='checkpoints/MER_tSimple_eSimple_22-05-10_02-11-15_final.pth',
-        writer=None,
+        load_model=None,
+        writer='runs/',
         temp_path=None
     )
 
