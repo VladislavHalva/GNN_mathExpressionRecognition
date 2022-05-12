@@ -11,7 +11,7 @@ if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
-    train = True
+    train = False
     evaluate = True
 
     trainer = Trainer(
@@ -20,7 +20,7 @@ if __name__ == '__main__':
         vocab_path='assets/vocab.txt',
         load_vocab=True,
         inkml_folder_vocab='assets/crohme/train/inkml',
-        load_model=None,
+        load_model='checkpoints/MER_tSimple_eSimple_22-05-12_20-26-55_final.pth',
         writer='runs/',
         temp_path=None
     )
@@ -29,7 +29,7 @@ if __name__ == '__main__':
         trainer.set_eval_during_training(
             images_root='assets/crohme/simple/img/',
             inkmls_root='assets/crohme/simple/inkml/',
-            batch_size=6,
+            batch_size=1,
             print_stats=True,
             print_item_level_stats=True,
             each_nth_epoch=1

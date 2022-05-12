@@ -9,9 +9,9 @@ from src.definitions.exceptions.ModelParamsError import ModelParamsError
 from src.model.DecoderBlock import DecoderBlock
 
 
-class Decoder(nn.Module):
+class GreedyDecoder(nn.Module):
     def __init__(self, device, f_size, in_size, h_size, emb_size, vocab_size, end_node_token_id, tokenizer, emb_dropout_p, att_dropout_p):
-        super(Decoder, self).__init__()
+        super(GreedyDecoder, self).__init__()
         self.device = device
         self.f_size = f_size
         self.in_size = in_size
@@ -36,7 +36,7 @@ class Decoder(nn.Module):
         self.gcn3_alpha_eval = None
 
     def forward(self, x, x_batch, tgt_y=None, tgt_edge_index=None, tgt_edge_type=None, tgt_y_batch=None):
-        if self.training or True:
+        if self.training:
             if \
                     not torch.is_tensor(tgt_y) or not torch.is_tensor(tgt_edge_index) or \
                     not torch.is_tensor(tgt_edge_type) or not torch.is_tensor(tgt_y_batch):

@@ -45,10 +45,10 @@ class Trainer:
         self.dec_h_size = 256
         self.emb_size = 256
 
-        self.enc_vgg_dropout_p = 0.5
-        self.enc_gat_dropout_p = 0.3
-        self.dec_emb_dropout_p = 0.2
-        self.dec_att_dropout_p = 0.3
+        self.enc_vgg_dropout_p = 0.0
+        self.enc_gat_dropout_p = 0.0
+        self.dec_emb_dropout_p = 0.0
+        self.dec_att_dropout_p = 0.0
 
         self.substitute_terms = False
 

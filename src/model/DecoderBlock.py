@@ -21,7 +21,7 @@ class DecoderBlock(nn.Module):
         self.is_first = is_first
 
         self.gcn = GCN2(device, in_size, out_size, is_first)
-        self.attBlock = AttBlockMinimal(device, f_size, in_size, out_size, init_size, att_dropout_p)
+        self.attBlock = AttBlock(device, f_size, in_size, out_size, init_size, att_dropout_p, is_first)
 
         self.lin = Linear(out_size, out_size, bias=True, weight_initializer='glorot')
 

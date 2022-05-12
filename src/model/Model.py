@@ -1,7 +1,8 @@
 from torch import nn
 
+from src.model.BeamDecoder import BeamDecoder
 from src.model.Encoder import Encoder
-from src.model.Decoder import Decoder
+from src.model.GreedyDecoder import GreedyDecoder
 
 
 class Model(nn.Module):
@@ -13,7 +14,7 @@ class Model(nn.Module):
         super(Model, self).__init__()
 
         self.encoder = Encoder(edge_features, edge_h_size, enc_in_size, enc_h_size, enc_out_size, vocab_size, enc_vgg_dropout_p, enc_gat_dropout_p)
-        self.decoder = Decoder(device, enc_out_size, dec_in_size, dec_h_size, emb_size, vocab_size, end_node_token_id, tokenizer, dec_emb_dropout_p, dec_att_dropout_p)
+        self.decoder = BeamDecoder(device, enc_out_size, dec_in_size, dec_h_size, emb_size, vocab_size, end_node_token_id, tokenizer, dec_emb_dropout_p, dec_att_dropout_p, beam_width=3)
 
         self.lin_x_out = nn.Linear(enc_out_size, vocab_size, bias=False)
 
