@@ -1,0 +1,379 @@
+Device: cpu
+Tokenizer loaded from: assets/tokenizer.json
+Vocab size: 497
+Training...
+Loading data...
+Dataset: 6 item found
+EPOCH: 0
+
+100%|██████████| 6/6 [00:04<00:00,  1.45it/s]
+ epoch loss total: 456.56801449352207
+ epoch loss avg:   76.09466908225367
+ symbol class acc: 50.000%
+ edge class acc:   0.000%
+EPOCH: 1
+
+100%|██████████| 6/6 [00:03<00:00,  1.55it/s]
+ epoch loss total: 85.13711323559976
+ epoch loss avg:   14.18951887259996
+ symbol class acc: 50.000%
+ edge class acc:   64.706%
+EPOCH: 2
+
+100%|██████████| 6/6 [00:03<00:00,  1.59it/s]
+ epoch loss total: 60.84617253509199
+ epoch loss avg:   10.141028755848664
+ symbol class acc: 50.000%
+ edge class acc:   58.824%
+EPOCH: 3
+
+100%|██████████| 6/6 [00:04<00:00,  1.50it/s]
+ epoch loss total: 55.64260383195234
+ epoch loss avg:   9.273767305325391
+ symbol class acc: 50.000%
+ edge class acc:   100.000%
+EPOCH: 4
+
+100%|██████████| 6/6 [00:05<00:00,  1.03it/s]
+ epoch loss total: 42.899220935336665
+ epoch loss avg:   7.149870155889444
+ symbol class acc: 70.000%
+ edge class acc:   88.889%
+EPOCH: 5
+
+
+100%|██████████| 6/6 [00:06<00:00,  1.02s/it]
+ epoch loss total: 36.323940599024255
+ epoch loss avg:   6.0539900998373755
+ symbol class acc: 44.444%
+ edge class acc:   58.824%
+EPOCH: 6
+
+
+100%|██████████| 6/6 [00:05<00:00,  1.18it/s]
+ epoch loss total: 30.340138680348947
+ epoch loss avg:   5.056689780058158
+ symbol class acc: 100.000%
+ edge class acc:   100.000%
+EPOCH: 7
+
+
+100%|██████████| 6/6 [00:05<00:00,  1.18it/s]
+ epoch loss total: 25.589403107931393
+ epoch loss avg:   4.264900517988566
+ symbol class acc: 100.000%
+ edge class acc:   100.000%
+EPOCH: 8
+
+100%|██████████| 6/6 [00:05<00:00,  1.15it/s]
+ epoch loss total: 28.467677228919257
+ epoch loss avg:   4.7446128714865425
+ symbol class acc: 66.667%
+ edge class acc:   82.759%
+EPOCH: 9
+
+
+100%|██████████| 6/6 [00:04<00:00,  1.22it/s]
+ epoch loss total: 26.380178557760438
+ epoch loss avg:   4.396696426293406
+ symbol class acc: 90.000%
+ edge class acc:   88.889%
+EPOCH: 10
+
+100%|██████████| 6/6 [00:04<00:00,  1.28it/s]
+ epoch loss total: 19.69131776930104
+ epoch loss avg:   3.2818862948835066
+ symbol class acc: 77.778%
+ edge class acc:   100.000%
+EPOCH: 11
+
+100%|██████████| 6/6 [00:04<00:00,  1.21it/s]
+ epoch loss total: 16.45091344147217
+ epoch loss avg:   2.7418189069120285
+ symbol class acc: 100.000%
+ edge class acc:   100.000%
+EPOCH: 12
+
+
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+ epoch loss total: 15.704897004582467
+ epoch loss avg:   2.617482834097078
+ symbol class acc: 94.444%
+ edge class acc:   94.118%
+EPOCH: 13
+ 67%|██████▋   | 4/6 [00:03<00:01,  1.31it/s]
+ epoch loss avg:   2.4492291593894368.29it/s]
+ epoch loss avg:   2.4492291593894368.29it/s]
+ symbol class acc: 90.000%
+ edge class acc:   100.000%
+EPOCH: 14
+ 50%|█████     | 3/6 [00:02<00:02,  1.18it/s]
+ 83%|████████▎ | 5/6 [00:04<00:00,  1.24it/s]
+EPOCH: 15██████| 6/6 [00:04<00:00,  1.24it/s]
+EPOCH: 15██████| 6/6 [00:04<00:00,  1.24it/s]
+EPOCH: 15██████| 6/6 [00:04<00:00,  1.24it/s]
+EPOCH: 15██████| 6/6 [00:04<00:00,  1.24it/s]
+EPOCH: 15██████| 6/6 [00:04<00:00,  1.24it/s]
+ edge class acc:   100.000%<00:00,  1.24it/s]
+ edge class acc:   100.000%<00:00,  1.24it/s]
+ symbol class acc: 90.000%%<00:00,  1.24it/s]
+ symbol class acc: 90.000%%<00:00,  1.24it/s]
+ symbol class acc: 90.000%%<00:00,  1.24it/s]
+ epoch loss avg:   1.6686294556420675.24it/s]
+ epoch loss avg:   1.6686294556420675.24it/s]
+  SLT struct-match:  Truer \sin \theta24it/s]
+  gt latex:          y = r \sin \theta
+  pr latex:          y = r \sin \theta
+  e-distance str:    0
+  e-distance seq:    0
+  seq-sym-pr:        100.00000%
+  SLT struct-match:  Truer \sin \theta24it/s]
+  SLT exact-match:   True
+  SLT exact-match-1: True
+  SLT exact-match-2: True
+  SLT sym-cls-err:   0
+  SLT edge-cls-err:  0
+ 50%|█████     | 1/2 [00:00<00:00,  2.04it/s]  gt symbols:        b = c \sin B = c \cos A
+  pr symbols:        y = r \sin \theta
+  gt latex:          b = c \sin B = c \cos A
+  pr latex:          y = r \sin \theta
+  e-distance str:    13
+  e-distance seq:    7
+  seq-sym-pr:        22.22222%
+  SLT struct-match:  False
+  SLT exact-match:   False
+  SLT exact-match-1: False
+  SLT exact-match-2: False
+  SLT sym-cls-err:   3
+  SLT edge-cls-err:  0
+  gt symbols:        \frac ( 3 + z 2 ) ( 7 + z 2 ) 3 2
+  pr symbols:        y = r \sin \theta
+  gt latex:          \frac { ( 3 + z ^ { 2 } ) ( 7 + z ^ { 2 } ) } { 3 2 }
+  pr latex:          y = r \sin \theta
+  e-distance str:    49
+  e-distance seq:    25
+  seq-sym-pr:        0.00000%
+  SLT struct-match:  False
+  SLT exact-match:   False
+  SLT exact-match-1: False
+  SLT exact-match-2: False
+  SLT sym-cls-err:   5
+  SLT edge-cls-err:  1
+100%|██████████| 2/2 [00:00<00:00,  2.08it/s]
+ exact-match:    33.333% = 2
+ exact-match -1: 33.333% = 2
+ exact-match -2: 50.000% = 3
+ struct-match:   50.000% = 3
+ e-dist str avg: 16.000
+ e-dist seq avg: 8.333
+EPOCH: 20
+ 50%|█████     | 3/6 [00:02<00:02,  1.20it/s]
+ 83%|████████▎ | 5/6 [00:04<00:00,  1.06it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+100%|██████████| 6/6 [00:05<00:00,  1.19it/s]
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    000:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    000:00<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ symbol class acc: 100.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0.000%<00:00,  1.59it/s]  gt symbols:        b = c \sin B = c \cos A
+ 50%|█████     | 1/2 [00:00<00:00,  1.71it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0rue00<00:00,  1.71it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance seq:    0
+  seq-sym-pr:        100.00000%
+  SLT struct-match:  True
+  SLT exact-match:   True
+  SLT exact-match-1: True
+  SLT exact-match-2: True
+  SLT sym-cls-err:   0
+  SLT edge-cls-err:  0
+ 83%|████████▎ | 5/6 [00:00<00:00,  4.80it/s]
+  e-distance str:    0rue00<00:00,  1.71it/s]  gt symbols:        b = c \sin B = c \cos A
+  e-distance str:    0rue00<00:00,  1.71it/s]  gt symbols:        b = c \sin B = c \cos A

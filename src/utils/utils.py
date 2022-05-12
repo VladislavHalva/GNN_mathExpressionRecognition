@@ -6,9 +6,9 @@ from rapidfuzz.distance import Levenshtein
 import numpy as np
 import torch
 
-from src.data.GPairData import GPairData
-from src.utils.SltDiff import SltDiff
-from src.utils.SltParser import SltParser
+from src.data.GMathData import G2GData
+from src.data.SltDiff import SltDiff
+from src.data.SltParser import SltParser
 
 
 def create_attn_gt(data_batch, end_node_token_id):
@@ -71,6 +71,8 @@ def split_databatch(databatch):
         edge_index_b[0] = (edge_index_b[0].view(-1, 1) == x_b_ids).int().argmax(dim=1)
         edge_index_b[1] = (edge_index_b[1].view(-1, 1) == x_b_ids).int().argmax(dim=1)
         edge_attr_b = db.edge_attr[edge_index_b_ids]
+        edge_type_b = db.edge_type[edge_index_b_ids]
+        edge_type_score_b = db.edge_type_score[edge_index_b_ids]
 
         # get target graph elements for current batch item
         tgt_y_b = db.tgt_y[tgt_y_b_ids]
@@ -95,7 +97,7 @@ def split_databatch(databatch):
         y_edge_rel_score_b = db.y_edge_rel_score[y_edge_index_b_ids]
 
         # create new data-element with data for current batch item only
-        data_b = GPairData(
+        data_b = G2GData(
             x=x_b, edge_index=edge_index_b, edge_attr=edge_attr_b,
             gt=gt_b, gt_ml=gt_ml_b, tgt_y=tgt_y_b, tgt_edge_index=tgt_edge_index_b,
             tgt_edge_type=tgt_edge_type_b, tgt_edge_relation=tgt_edge_relation_b,
@@ -108,6 +110,8 @@ def split_databatch(databatch):
         data_b.y_edge_index = y_edge_index_b
         data_b.y_edge_type = y_edge_type_b
         data_b.y_edge_rel_score = y_edge_rel_score_b
+        data_b.edge_type = edge_type_b
+        data_b.edge_type_score = edge_type_score_b
         data_elems.append(data_b)
 
     return data_elems
@@ -122,6 +126,7 @@ def compute_single_item_stats(data, tokenizer):
 
     stats['gt_node_symbols'] = tokenizer.decode(data.tgt_y.tolist())
     stats['pred_node_symbols'] = tokenizer.decode(y_pred.tolist())
+    stats['pred_node_symbols_with_special'] = tokenizer.decode(y_pred.tolist(), skip_special_tokens=False)
 
     # parse latex string from Symbol Layout Tree
     latex, latex_symbols = SltParser.slt_to_latex(

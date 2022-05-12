@@ -5,6 +5,7 @@ from math import ceil
 
 import numpy as np
 import torch
+import wandb
 from matplotlib import pyplot as plt
 from torch import optim, nn
 from torch.utils.tensorboard import SummaryWriter
@@ -12,7 +13,7 @@ from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 import torch.nn.functional as F
 
-from src.data.CrohmeDataset import CrohmeDataset
+from src.data.GMathDataset import CrohmeDataset
 from src.data.LatexVocab import LatexVocab
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.exceptions.ModelParamsError import ModelParamsError
@@ -35,7 +36,7 @@ class Trainer:
     ):
         # define metaparameters
         self.components_shape = (32, 32)
-        self.edge_features = 19
+        self.edge_features = 10
         self.edge_h_size = 64
         self.enc_in_size = 256
         self.enc_h_size = 256
@@ -44,10 +45,10 @@ class Trainer:
         self.dec_h_size = 256
         self.emb_size = 256
 
-        self.enc_vgg_dropout_p = 0.0
-        self.enc_gat_dropout_p = 0.0
-        self.dec_emb_dropout_p = 0.0
-        self.dec_att_dropout_p = 0.0
+        self.enc_vgg_dropout_p = 0.5
+        self.enc_gat_dropout_p = 0.3
+        self.dec_emb_dropout_p = 0.2
+        self.dec_att_dropout_p = 0.3
 
         self.substitute_terms = False
 
@@ -80,11 +81,12 @@ class Trainer:
             self.enc_in_size, self.enc_h_size, self.enc_out_size, self.dec_in_size, self.dec_h_size, self.emb_size,
             self.vocab_size, self.end_node_token_id, self.tokenizer,
             self.enc_vgg_dropout_p, self.enc_gat_dropout_p, self.dec_emb_dropout_p, self.dec_att_dropout_p)
-        self.model.float()
+        self.model.double()
         if load_model is not None and os.path.exists(load_model):
             self.model.load_state_dict(torch.load(load_model, map_location=self.device))
             logging.info(f"Model loaded: {load_model}")
         self.model.to(self.device)
+        # wandb.watch(self.model)
 
         # init summary writer
         if writer is not None and os.path.exists(writer):
@@ -133,7 +135,15 @@ class Trainer:
                 'symbol_count': 0,
                 'correct_symbol_count': 0,
                 'edge_count': 0,
-                'correct_edge_count': 0
+                'correct_edge_count': 0,
+                'src_node_count': 0,
+                'correct_src_node_count': 0,
+                'src_edge_count': 0,
+                'correct_src_edge_count': 0,
+                'attn_relevant_items': 0,
+                'attn_block1_abs_diff': 0,
+                'attn_block2_abs_diff': 0,
+                'attn_block3_abs_diff': 0
             }
             logging.info(f"\nEPOCH: {epoch}")
 
@@ -144,13 +154,31 @@ class Trainer:
                 optimizer.zero_grad()
                 out = self.model(data_batch)
 
-                loss = calculate_loss(out, self.end_node_token_id, self.device)
+                loss = calculate_loss(out, self.end_node_token_id, self.device, self.writer, writer_idx=epoch * len(trainloader) + i)
                 loss.backward()
 
                 # gradient clipping
                 nn.utils.clip_grad_value_(self.model.parameters(), clip_value=1.0)
 
                 optimizer.step()
+
+                batch_stats = self.evaluate_training(out.detach())
+                epoch_stats['symbol_count'] += batch_stats['symbol_count']
+                epoch_stats['correct_symbol_count'] += batch_stats['correct_symbol_count']
+                epoch_stats['edge_count'] += batch_stats['edge_count']
+                epoch_stats['correct_edge_count'] += batch_stats['correct_edge_count']
+                epoch_stats['src_node_count'] += batch_stats['src_node_count']
+                epoch_stats['correct_src_node_count'] += batch_stats['correct_src_node_count']
+                epoch_stats['src_edge_count'] += batch_stats['src_edge_count']
+                epoch_stats['correct_src_edge_count'] += batch_stats['correct_src_edge_count']
+                epoch_stats['attn_relevant_items'] += batch_stats['attn_relevant_items']
+                epoch_stats['attn_block1_abs_diff'] += batch_stats['attn_block1_abs_diff']
+                epoch_stats['attn_block2_abs_diff'] += batch_stats['attn_block2_abs_diff']
+                epoch_stats['attn_block3_abs_diff'] += batch_stats['attn_block3_abs_diff']
+                if self.writer:
+                    self.writer.add_scalar('ItemAttnMeanAbsDiff_blk1/train', batch_stats['attn_block1_mean_abs_diff'], epoch * len(trainloader) + i)
+                    self.writer.add_scalar('ItemAttnMeanAbsDiff_blk2/train', batch_stats['attn_block2_mean_abs_diff'], epoch * len(trainloader) + i)
+                    self.writer.add_scalar('ItemAttnMeanAbsDiff_blk3/train', batch_stats['attn_block3_mean_abs_diff'], epoch * len(trainloader) + i)
 
                 epoch_loss += loss.item()
                 if self.writer:
@@ -161,24 +189,28 @@ class Trainer:
 
             if self.writer:
                 self.writer.add_scalar('EpochLossTotal/train', epoch_loss, epoch)
-                self.writer.add_scalar('EpochLossAvg/train', epoch_loss / len(trainset), epoch)
+                self.writer.add_scalar('EpochLossAvg/train', epoch_loss / len(trainloader), epoch)
 
             if save_checkpoint_each_nth_epoch != 0 and epoch % save_checkpoint_each_nth_epoch == save_checkpoint_each_nth_epoch - 1:
                 save_model_check_name = self.model_name + '_' + str(epoch) + '.pth'
                 torch.save(self.model.state_dict(), os.path.join(save_model_dir, save_model_check_name))
 
-            batch_stats = self.evaluate_training(out.detach())
-            epoch_stats['symbol_count'] += batch_stats['symbol_count']
-            epoch_stats['correct_symbol_count'] += batch_stats['correct_symbol_count']
-            epoch_stats['edge_count'] += batch_stats['edge_count']
-            epoch_stats['correct_edge_count'] += batch_stats['correct_edge_count']
-
             epoch_stats['symbol_acc'] = epoch_stats['correct_symbol_count'] / epoch_stats['symbol_count'] if epoch_stats['symbol_count'] > 0 else 0
             epoch_stats['edge_acc'] = epoch_stats['correct_edge_count'] / epoch_stats['edge_count'] if epoch_stats['edge_count'] > 0 else 0
+            epoch_stats['src_symbol_acc'] = epoch_stats['correct_src_node_count'] / epoch_stats['src_node_count'] if epoch_stats['src_node_count'] > 0 else 0
+            epoch_stats['src_edge_acc'] = epoch_stats['correct_src_edge_count'] / epoch_stats['src_edge_count'] if epoch_stats['src_edge_count'] > 0 else 0
+            epoch_stats['attn_block1_mean_abs_diff'] = epoch_stats['attn_block1_abs_diff'] / epoch_stats['attn_relevant_items'] if epoch_stats['attn_relevant_items'] > 0 else 0
+            epoch_stats['attn_block2_mean_abs_diff'] = epoch_stats['attn_block2_abs_diff'] / epoch_stats['attn_relevant_items'] if epoch_stats['attn_relevant_items'] > 0 else 0
+            epoch_stats['attn_block3_mean_abs_diff'] = epoch_stats['attn_block3_abs_diff'] / epoch_stats['attn_relevant_items'] if epoch_stats['attn_relevant_items'] > 0 else 0
 
             if self.writer:
                 self.writer.add_scalar('SetSymAcc/train', epoch_stats['symbol_acc'], epoch)
                 self.writer.add_scalar('SetEdgeAcc/train', epoch_stats['edge_acc'], epoch)
+                self.writer.add_scalar('SetSrcSymAcc/train', epoch_stats['src_symbol_acc'], epoch)
+                self.writer.add_scalar('SetSrcEdgeAcc/train', epoch_stats['src_edge_acc'], epoch)
+                self.writer.add_scalar('SetAttnMeanAbsDiff_blk1/train', epoch_stats['attn_block1_mean_abs_diff'], epoch)
+                self.writer.add_scalar('SetAttnMeanAbsDiff_blk2/train', epoch_stats['attn_block2_mean_abs_diff'], epoch)
+                self.writer.add_scalar('SetAttnMeanAbsDiff_blk3/train', epoch_stats['attn_block3_mean_abs_diff'], epoch)
 
             logging.info(f" symbol class acc: {epoch_stats['symbol_acc'] * 100:.3f}%")
             logging.info(f" edge class acc:   {epoch_stats['edge_acc'] * 100:.3f}%")
@@ -216,6 +248,44 @@ class Trainer:
         out_pc_edge_relation = out_pc_edge_relation.argmax(dim=-1)
         stats['edge_count'] = tgt_pc_edge_relation.shape[0]
         stats['correct_edge_count'] = torch.sum((tgt_pc_edge_relation == out_pc_edge_relation))
+
+        # evaluate src symbol prediction
+        x_pred = torch.argmax(data.x_score, dim=1)
+        x_gt_node = data.attn_gt.argmax(dim=0)
+        x_gt = data.tgt_y[x_gt_node]
+        stats['src_node_count'] = x_gt.shape[0]
+        stats['correct_src_node_count'] = torch.sum(x_gt == x_pred)
+
+        # evaluate src edge prediction
+        x_edge_pred = torch.argmax(data.edge_type_score, dim=1)
+        x_edge_gt = data.edge_type
+        stats['src_edge_count'] = x_edge_gt.shape[0]
+        stats['correct_src_edge_count'] = torch.sum(x_edge_pred == x_edge_gt)
+
+        # evaluate attention accuracy
+        alpha_batch_mask = (data.y_batch.unsqueeze(1) - data.x_batch.unsqueeze(0) != 0).long()
+        no_end_node_indices = (data.tgt_y != self.end_node_token_id)
+        no_end_node_mask = no_end_node_indices.unsqueeze(1).repeat(1, data.x.shape[0])
+        relevant_attn_mask = torch.logical_and(alpha_batch_mask, no_end_node_mask)
+        relevant_items_count = torch.sum(relevant_attn_mask.long())
+
+        attn_gt = data.attn_gt
+        block1_attn = data.gcn1_alpha * relevant_attn_mask
+        block2_attn = data.gcn2_alpha * relevant_attn_mask
+        block3_attn = data.gcn3_alpha * relevant_attn_mask
+        block1_abs_diff = torch.abs(attn_gt - block1_attn).sum()
+        block2_abs_diff = torch.abs(attn_gt - block2_attn).sum()
+        block3_abs_diff = torch.abs(attn_gt - block3_attn).sum()
+        block1_mean_abs_diff = block1_abs_diff / relevant_items_count
+        block2_mean_abs_diff = block2_abs_diff / relevant_items_count
+        block3_mean_abs_diff = block3_abs_diff / relevant_items_count
+        stats['attn_relevant_items'] = relevant_items_count
+        stats['attn_block1_abs_diff'] = block1_abs_diff
+        stats['attn_block2_abs_diff'] = block2_abs_diff
+        stats['attn_block3_abs_diff'] = block3_abs_diff
+        stats['attn_block1_mean_abs_diff'] = block1_mean_abs_diff
+        stats['attn_block2_mean_abs_diff'] = block2_mean_abs_diff
+        stats['attn_block3_mean_abs_diff'] = block3_mean_abs_diff
 
         return stats
 
@@ -264,33 +334,35 @@ class Trainer:
                 # print(x_gt)
                 # print(comp_pred)
 
-                # for i, y in enumerate(data_batch.tgt_y):
-                #     token = self.tokenizer.decode([y.item()], skip_special_tokens=False)
-                #     print(token)
-                #     y_attn_gt = data_batch.attn_gt[i]
-                #     y_attn_gcn1 = out.gcn2_alpha[i]
-                #     x_j = x.clone().squeeze(1)
-                #     x_a1 = x.clone().squeeze(1)
-                #     for i, x_i in enumerate(x_j):
-                #         x_j[i] = x_i * y_attn_gt[i]
-                #         x_j[i] /= torch.max(x_j[i])
-                #     for i, x_i in enumerate(x_a1):
-                #         x_a1[i] = x_i * y_attn_gcn1[i]
-                #         x_a1[i] /= torch.max(x_a1[i])
-                #     cols = 4
-                #     rows = ceil(y_attn_gt.shape[0] / cols)
-                #     row = 0
-                #     col = 0
-                #     _, axs = plt.subplots(rows, cols, figsize=(32, 32))
-                #     axs = axs.flatten()
-                #     for x_i, ax in zip(x_j, axs):
-                #         ax.imshow(x_i)
-                #     plt.show()
-                #     _, axs = plt.subplots(rows, cols, figsize=(32, 32))
-                #     axs = axs.flatten()
-                #     for x_i, ax in zip(x_a1, axs):
-                #         ax.imshow(x_i)
-                #     plt.show()
+                plot_attn = False
+                if plot_attn:
+                    for i, y in enumerate(data_batch.tgt_y):
+                        token = self.tokenizer.decode([y.item()], skip_special_tokens=False)
+                        print(token)
+                        y_attn_gt = data_batch.attn_gt[i]
+                        y_attn_gcn1 = out.gcn1_alpha[i]
+                        x_j = x.clone().squeeze(1)
+                        x_a1 = x.clone().squeeze(1)
+                        for i, x_i in enumerate(x_j):
+                            x_j[i] = x_i * y_attn_gt[i]
+                            x_j[i] /= torch.max(x_j[i])
+                        for i, x_i in enumerate(x_a1):
+                            x_a1[i] = x_i * y_attn_gcn1[i]
+                            x_a1[i] /= torch.max(x_a1[i])
+                        cols = 4
+                        rows = ceil(y_attn_gt.shape[0] / cols)
+                        row = 0
+                        col = 0
+                        _, axs = plt.subplots(rows, cols, figsize=(32, 32))
+                        axs = axs.flatten()
+                        for x_i, ax in zip(x_j, axs):
+                            ax.imshow(x_i)
+                        plt.show()
+                        _, axs = plt.subplots(rows, cols, figsize=(32, 32))
+                        axs = axs.flatten()
+                        for x_i, ax in zip(x_a1, axs):
+                            ax.imshow(x_i)
+                        plt.show()
 
                 # split result batch to separate data elements
                 out_elems = split_databatch(out)
@@ -309,6 +381,7 @@ class Trainer:
                             seq_symbol_precision = item_stats['seq_correct_symbols_count'] / item_stats['seq_symbols_count']
                         logging.info(f"  gt symbols:        {item_stats['gt_node_symbols']}")
                         logging.info(f"  pr symbols:        {item_stats['pred_node_symbols']}")
+                        logging.info(f"  pr symbols sp:     {item_stats['pred_node_symbols_with_special']}")
                         logging.info(f"  gt latex:          {item_stats['latex_gt']}")
                         logging.info(f"  pr latex:          {item_stats['latex_pred']}")
                         logging.info(f"  e-distance str:    {item_stats['edit_distance_str']}")

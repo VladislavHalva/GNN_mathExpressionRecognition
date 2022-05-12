@@ -1,30 +1,28 @@
-import pyvisgraph as vg
 import os
 import pickle
 import random
-from math import sqrt, ceil
+from math import sqrt
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import cv2 as cv
 import imutils
 import numpy as np
-import scipy.ndimage
 import torch
 import imghdr
 import logging
 from shapely.geometry import Polygon, LineString
 from matplotlib import pyplot as plt
-from shapely.ops import nearest_points
 from torch.utils.data import Dataset
 from torch_geometric.data import Data
 import networkx as nx
 from torch_geometric.utils import to_networkx
 from networkx.drawing.nx_pydot import graphviz_layout
 
-from src.data.GPairData import GPairData
+from src.data.GMathData import G2GData
 from src.data.LatexVocab import LatexVocab
 from src.definitions.MathMLAnnotationType import MathMLAnnotationType
 from src.definitions.SltEdgeTypes import SltEdgeTypes
+from src.definitions.SrtEdgeTypeExt import SrtEdgeTypesExt
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ItemLoadError import ItemLoadError
 from src.utils.utils import mathml_unicode_to_latex_label
@@ -36,7 +34,7 @@ class CrohmeDataset(Dataset):
         self.inkmls_root = inkmls_root
         self.tokenizer = tokenizer
         self.components_shape = components_shape
-        self.edge_features = 19
+        self.edge_features = 10
         self.items = []
         self.tmp_path = tmp_path
         self.substitute_terms = substitute_terms
@@ -86,14 +84,16 @@ class CrohmeDataset(Dataset):
                 x, edge_index, edge_attr, los_components = self.get_src_item(image_path)
                 # get tgt graph - SLT, and LaTeX ground-truth
                 gt, gt_ml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, comp_symbols = self.get_tgt_item(image_path, inkml_path, los_components)
+                edge_type = self.build_src_edge_type(comp_symbols, edge_index, tgt_edge_index, tgt_edge_relation)
                 # build dataset item
-                data = GPairData(
+                data = G2GData(
                     x=x, edge_index=edge_index, edge_attr=edge_attr,
                     gt=gt, gt_ml=gt_ml, tgt_y=tgt_y, tgt_edge_index=tgt_edge_index,
                     tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation,
                     comp_symbols=comp_symbols
                 )
                 data.filename = file_name
+                data.edge_type = edge_type
 
                 if self.tmp_path:
                     # save for next epoch/train run
@@ -106,7 +106,35 @@ class CrohmeDataset(Dataset):
             logging.debug(e)
             return self.__getitem__(random.randrange(0, self.__len__()))
 
-    def get_src_item(self, image_path):
+    def build_src_edge_type(self, comp_symbols, edge_index, tgt_edge_index, tgt_edge_relation):
+        edge_index = edge_index.t()
+        tgt_edge_index = tgt_edge_index.t()
+        src_to_tgt_edge_idx = [None] * edge_index.shape[0]
+        for src_edge_i, src_edge in enumerate(edge_index):
+            src_from_tgt = comp_symbols[src_edge[0]]
+            src_to_tgt = comp_symbols[src_edge[1]]
+            for tgt_edge_i, tgt_edge in enumerate(tgt_edge_index):
+                if tgt_edge[0] == src_from_tgt and tgt_edge[1] == src_to_tgt:
+                    # same direction edge
+                    src_to_tgt_edge_idx[src_edge_i] = tgt_edge_i
+                elif tgt_edge[1] == src_from_tgt and tgt_edge[0] == src_to_tgt:
+                    # reverse edge
+                    src_to_tgt_edge_idx[src_edge_i] = tgt_edge_i + tgt_edge_index.shape[0]
+        edge_type = torch.zeros((edge_index.shape[0]), dtype=torch.long)
+        for src_edge_i, srt_to_tgt in enumerate(src_to_tgt_edge_idx):
+            if srt_to_tgt is not None:
+                if srt_to_tgt < tgt_edge_relation.shape[0]:
+                    # same direction edge
+                    relation = SrtEdgeTypesExt.from_srt_edge_type(tgt_edge_relation[srt_to_tgt].item())
+                    edge_type[src_edge_i] = relation
+                else:
+                    # reverse edge
+                    srt_to_tgt_real = srt_to_tgt - tgt_edge_relation.shape[0]
+                    relation = SrtEdgeTypesExt.get_reverse(SrtEdgeTypesExt.from_srt_edge_type(tgt_edge_relation[srt_to_tgt_real].item()))
+                    edge_type[src_edge_i] = relation
+        return edge_type
+
+    def  get_src_item(self, image_path):
         # extract components and build LoS graph
         components, components_mask = self.extract_components_from_image(image_path)
         edges, edge_features = self.get_line_of_sight_edges(components, components_mask)
@@ -138,7 +166,7 @@ class CrohmeDataset(Dataset):
 
         x = torch.tensor(
             component_images,
-            dtype=torch.float)
+            dtype=torch.double)
         x = torch.unsqueeze(x, 1)
 
         # input edges - and make undirected - first in one direction, than backward
@@ -149,14 +177,14 @@ class CrohmeDataset(Dataset):
         edge_index = edge_index.t().contiguous()
 
         # input edges attributes - also create backward edge attributes (from the forward ones)
-        edge_attr = torch.tensor(edge_features, dtype=torch.float)
+        edge_attr = torch.tensor(edge_features, dtype=torch.double)
         edge_attr = self.add_backward_edge_attr(edge_attr)
 
         if edge_index.size(0) == 0:
             # prevent error in case of empty edge set
             # add empty list of desired shape
             edge_index = torch.tensor([[], []], dtype=torch.long)
-            edge_attr = torch.zeros((0, self.edge_features), dtype=torch.float)
+            edge_attr = torch.zeros((0, self.edge_features), dtype=torch.double)
 
         return x, edge_index, edge_attr, components
 
@@ -311,11 +339,7 @@ class CrohmeDataset(Dataset):
                 centroids_distance, centroids_distance_h, centroids_distance_v,
                 bbox_area_ratio, bbox_l_to_union_ratio,
                 bbox_w_ratio, bbox_h_ratio,
-                bbox_diagonal_ratio, bbox_area_ratio,
-                component1['bbox'][0][0], component1['bbox'][0][1],
-                component1['bbox'][2][0], component1['bbox'][2][1],
-                component2['bbox'][0][0], component2['bbox'][0][1],
-                component2['bbox'][2][0], component2['bbox'][2][1]
+                bbox_diagonal_ratio
             ])
         return edges, edge_features
 
@@ -334,11 +358,6 @@ class CrohmeDataset(Dataset):
             bw_edge_attr[:, 7] = torch.pow(bw_edge_attr[:, 7], -1)
             bw_edge_attr[:, 8] = torch.pow(bw_edge_attr[:, 8], -1)
             bw_edge_attr[:, 9] = torch.pow(bw_edge_attr[:, 9], -1)
-            bw_edge_attr[:, 10] = torch.pow(bw_edge_attr[:, 10], -1)
-            bw_edge_attr[:, 11], bw_edge_attr[:, 15] = bw_edge_attr[:, 15], bw_edge_attr[:, 11]
-            bw_edge_attr[:, 12], bw_edge_attr[:, 16] = bw_edge_attr[:, 16], bw_edge_attr[:, 12]
-            bw_edge_attr[:, 13], bw_edge_attr[:, 17] = bw_edge_attr[:, 17], bw_edge_attr[:, 13]
-            bw_edge_attr[:, 14], bw_edge_attr[:, 18] = bw_edge_attr[:, 18], bw_edge_attr[:, 14]
 
         return torch.cat([edge_attr, bw_edge_attr], dim=0)
 
@@ -865,8 +884,6 @@ class CrohmeDataset(Dataset):
         if los_components is None:
             comp_symbols = None
         else:
-            # img = cv.imread(image_path)
-            # rescale tracegroups coordinates
             tracegroups = self.rescale_tracegroup_coordinates(image_path, tracegroups)
             # assign symbols to tracegroups
             symbols_bbox_polygons = []
@@ -874,9 +891,6 @@ class CrohmeDataset(Dataset):
                 tg = next((tg for tg in tracegroups if tg['symbol_id'] == symbol['id']), None)
                 if tg is not None and tg['bbox'] is not None:
                     symbols_bbox_polygons.append(Polygon(tg['bbox']))
-                    # topleft = tg['bbox'][0]
-                    # bottomright = tg['bbox'][2]
-                    # cv.rectangle(img, topleft, bottomright, (255, 0, 0), 1)
                 else:
                     symbols_bbox_polygons.append(Polygon([(0, 0), (0, 0), (0, 0), (0, 0)]))
 
@@ -884,26 +898,14 @@ class CrohmeDataset(Dataset):
             los_components_symbols = []
             for los_component in los_components:
                 los_bbox_polygon = Polygon(los_component['bbox'])
-                # topleft = los_component['bbox'][0]
-                # bottomright = los_component['bbox'][2]
-                # cv.rectangle(img, topleft, bottomright, (0, 255, 0), 1)
                 intersection_areas = []
-                # intersections = []
                 for symbol_polygon in symbols_bbox_polygons:
                     intersection = los_bbox_polygon.intersection(symbol_polygon)
-                    # intersections.append(intersection)
                     intersection_areas.append(intersection.area)
                 symbol_id = np.argmax(intersection_areas)
                 los_components_symbols.append(symbol_id)
-                # intersection = intersections[symbol_id]
-                # topleft = (round(intersection.bounds[0]), round(intersection.bounds[1]))
-                # bottomright = (round(intersection.bounds[2]), round(intersection.bounds[3]))
-                # cv.rectangle(img, topleft, bottomright, (0, 0, 255), 1)
 
             comp_symbols = torch.tensor(los_components_symbols, dtype=torch.long)
-
-            # plt.imshow(img)
-            # plt.show()
 
         # generate end child nodes
         end_nodes, end_edge_index = self.get_end_child_nodes(len(x))
@@ -1037,7 +1039,7 @@ class CrohmeDataset(Dataset):
 
     def draw_slt(self, symbols, x, edge_index, edge_type, edge_relation, include_end_nodes=False):
         x_indices = list(range(len(x)))
-        x_indices = torch.tensor(x_indices, dtype=torch.float)
+        x_indices = torch.tensor(x_indices, dtype=torch.double)
 
         symbols = [(str(i) + '. ' + symbol['symbol']) for i, symbol in enumerate(symbols)]
 

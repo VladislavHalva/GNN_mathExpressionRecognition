@@ -1,4 +1,4 @@
-from src.utils.SltParser import SltParser
+from src.data.SltParser import SltParser
 
 
 class SltDiff:
@@ -7,12 +7,12 @@ class SltDiff:
         self.a_eindex = a_eindex
         self.a_tk = SltParser.decode_node_tokens(tokenizer, a)
         self.a_tk, self.a_eindex_pc, self.a_eindex_bb, self.a_erel_pc, self.a_root = \
-            SltParser.clean_slt(self.a_tk, a_erel, a_eindex, a_etype)
+            SltParser.clean_slt(self.a_tk, a_erel, a_eindex, a_etype, training_time=False)
         # load second SLT, decode tokens and clean SLT
         self.b_eindex = b_eindex
         self.b_tk = SltParser.decode_node_tokens(tokenizer, b)
         self.b_tk, self.b_eindex_pc, self.b_eindex_bb, self.b_erel_pc, self.b_root = \
-            SltParser.clean_slt(self.b_tk, b_erel, b_eindex, b_etype)
+            SltParser.clean_slt(self.b_tk, b_erel, b_eindex, b_etype, training_time=False)
         # init results dictionary
         self.result = {}
 
@@ -49,6 +49,7 @@ class SltDiff:
     def traverse_subtree(self, a_root, b_root):
         a_token = self.a_tk[a_root] if a_root is not None else None
         b_token = self.b_tk[b_root] if b_root is not None else None
+
         # print(f"{a_token} : {b_token}")
 
         if a_root is None:

@@ -7,7 +7,6 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ModelParamsError import ModelParamsError
 from src.model.DecoderBlock import DecoderBlock
-from src.model.GCNDecLayer import GCNDecLayer
 
 
 class Decoder(nn.Module):
@@ -25,19 +24,19 @@ class Decoder(nn.Module):
         self.emb_dropout_p = emb_dropout_p
 
         self.embeds = nn.Embedding(vocab_size, in_size)
-        self.gcn1 = GCNDecLayer(device, f_size, in_size, h_size, att_dropout_p, in_size, is_first=True)
-        self.gcn2 = GCNDecLayer(device, f_size, h_size, h_size, att_dropout_p, in_size, is_first=False)
-        self.gcn3 = GCNDecLayer(device, f_size, h_size, emb_size, att_dropout_p, in_size, is_first=False)
+        self.decBlock1 = DecoderBlock(device, f_size, in_size, h_size, att_dropout_p, in_size, is_first=True)
+        self.decBlock2 = DecoderBlock(device, f_size, h_size, h_size, att_dropout_p, in_size, is_first=False)
+        self.decBlock3 = DecoderBlock(device, f_size, h_size, emb_size, att_dropout_p, in_size, is_first=False)
 
-        self.lin_z_out = nn.Linear(emb_size, vocab_size, bias=True)
-        self.lin_g_out = nn.Linear(2 * emb_size, len(SrtEdgeTypes))
+        self.lin_z_out = nn.Linear(emb_size, vocab_size, bias=False)
+        self.lin_g_out = nn.Linear(2 * emb_size, len(SrtEdgeTypes), bias=False)
 
         self.gcn1_alpha_eval = None
         self.gcn2_alpha_eval = None
         self.gcn3_alpha_eval = None
 
     def forward(self, x, x_batch, tgt_y=None, tgt_edge_index=None, tgt_edge_type=None, tgt_y_batch=None):
-        if self.training:
+        if self.training or True:
             if \
                     not torch.is_tensor(tgt_y) or not torch.is_tensor(tgt_edge_index) or \
                     not torch.is_tensor(tgt_edge_type) or not torch.is_tensor(tgt_y_batch):
@@ -54,9 +53,9 @@ class Decoder(nn.Module):
             # store init y embeds for attention purposes
             y_init = y
             # gcn layers
-            y, gcn1_alpha = self.gcn1(x, y, y_edge_index, y_edge_type, x_batch, y_batch, y_init)
-            y, gcn2_alpha = self.gcn2(x, y, y_edge_index, y_edge_type, x_batch, y_batch, y_init)
-            y, gcn3_alpha = self.gcn3(x, y, y_edge_index, y_edge_type, x_batch, y_batch, y_init)
+            y, gcn1_alpha = self.decBlock1(x, y, y_edge_index, y_edge_type, x_batch, y_batch, y_init)
+            y, gcn2_alpha = self.decBlock2(x, y, y_edge_index, y_edge_type, x_batch, y_batch, y_init)
+            y, gcn3_alpha = self.decBlock3(x, y, y_edge_index, y_edge_type, x_batch, y_batch, y_init)
             # save attention coefficients mask
         else:
             y, y_batch, y_edge_index, y_edge_type = self.gen_graph(x, x_batch)
@@ -77,9 +76,9 @@ class Decoder(nn.Module):
         # get batch size to generate all SLT trees at once
         bs = torch.unique(x_batch).shape[0]
         # holds the state of graph nodes as it should look before gcn processing
-        y_init = torch.tensor([], dtype=torch.float).to(self.device)
+        y_init = torch.tensor([], dtype=torch.double).to(self.device)
         # holds the state of graph nodes as it should look after gcn processing
-        y = torch.tensor([], dtype=torch.float).to(self.device)
+        y = torch.tensor([], dtype=torch.double).to(self.device)
         y_batch = torch.tensor([], dtype=torch.long).to(self.device)
         y_eindex = torch.tensor([[], []], dtype=torch.long).to(self.device)
         y_etype = torch.zeros(0, dtype=torch.long).to(self.device)
@@ -98,8 +97,8 @@ class Decoder(nn.Module):
     def gen_subtree(self, x, x_batch, y_init, y, y_batch, y_eindex, y_etype, gen_tree, pa_ids, gp_ids, ls_ids):
         # create new nodes for each batch that is not finished yet
         batch_idx_unfinisned = torch.tensor(list(compress(range(len(gen_tree)), gen_tree)), dtype=torch.long).to(self.device)
-        y_init_new = torch.zeros((len(batch_idx_unfinisned), self.in_size), dtype=torch.float).to(self.device)
-        y_new = torch.zeros((len(batch_idx_unfinisned), self.emb_size), dtype=torch.float).to(self.device)
+        y_init_new = torch.zeros((len(batch_idx_unfinisned), self.in_size), dtype=torch.double).to(self.device)
+        y_new = torch.zeros((len(batch_idx_unfinisned), self.emb_size), dtype=torch.double).to(self.device)
         y_new_idx = torch.tensor([y.shape[0] + order for order in range(y_new.shape[0])], dtype=torch.long).to(self.device)
         y_init = torch.cat([y_init, y_init_new], dim=0)
         y = torch.cat([y, y_new], dim=0)
@@ -116,9 +115,12 @@ class Decoder(nn.Module):
                 y_eindex, y_etype = self.create_edge(y_eindex, y_etype, ls_ids[i_batch], y_new_idx[i], SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER)
         # process with GCNs
         y_processed = torch.clone(y_init)
-        y_processed, gcn1_alpha = self.gcn1(x, y_processed, y_eindex, y_etype, x_batch, y_batch, y_init)
-        y_processed, gcn2_alpha = self.gcn2(x, y_processed, y_eindex, y_etype, x_batch, y_batch, y_init)
-        y_processed, gcn3_alpha = self.gcn3(x, y_processed, y_eindex, y_etype, x_batch, y_batch, y_init)
+        y_processed, gcn1_alpha = self.decBlock1(x, y_processed, y_eindex, y_etype, x_batch, y_batch, y_init)
+        y_processed, gcn2_alpha = self.decBlock2(x, y_processed, y_eindex, y_etype, x_batch, y_batch, y_init)
+        y_processed, gcn3_alpha = self.decBlock3(x, y_processed, y_eindex, y_etype, x_batch, y_batch, y_init)
+        self.gcn1_alpha_eval = gcn1_alpha
+        self.gcn2_alpha_eval = gcn2_alpha
+        self.gcn3_alpha_eval = gcn3_alpha
         # save attention coefficients - for analysis purposes only
         # the ones from last node generation will be returned
         # update value only for newly created node

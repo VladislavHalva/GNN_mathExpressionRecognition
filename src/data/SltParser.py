@@ -191,7 +191,7 @@ class SltParser:
         return edge_index
 
     @staticmethod
-    def clean_slt(tokens, edge_relations, edge_index, edge_type):
+    def clean_slt(tokens, edge_relations, edge_index, edge_type, training_time=False):
         # keep only parent-child edges
         edge_pc_indices = ((edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
         edge_bb_indices = ((edge_type == SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER).nonzero(as_tuple=True)[0])
@@ -223,7 +223,7 @@ class SltParser:
         end_node_ids = []
         for i, token in enumerate(tokens):
             if token == '[EOS]':
-                if i in src_nodes_ids:
+                if i in src_nodes_ids and training_time:
                     tokens[i] = ''
                 else:
                     end_node_ids.append(i)

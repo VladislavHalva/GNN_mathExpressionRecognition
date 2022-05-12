@@ -4,8 +4,10 @@ import torch
 
 from src.Trainer import Trainer
 from src.utils.helper_functions import cpy_images_inkml_gt
+import wandb
 
 if __name__ == '__main__':
+    # wandb.init(project="mer-local", entity="vladislavhalva-team")
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
@@ -27,18 +29,18 @@ if __name__ == '__main__':
         trainer.set_eval_during_training(
             images_root='assets/crohme/simple/img/',
             inkmls_root='assets/crohme/simple/inkml/',
-            batch_size=4,
+            batch_size=6,
             print_stats=True,
             print_item_level_stats=True,
-            each_nth_epoch=20
+            each_nth_epoch=1
         )
         trainer.train(
             images_root='assets/crohme/simple/img/',
             inkmls_root='assets/crohme/simple/inkml/',
-            epochs=100,
-            batch_size=1,
+            epochs=150,
+            batch_size=2,
             save_model_dir='checkpoints/',
-            save_checkpoint_each_nth_epoch=50
+            save_checkpoint_each_nth_epoch=0
         )
 
     if evaluate:

@@ -5,7 +5,9 @@ from torch_geometric.nn import Linear
 from torch_geometric.nn.inits import zeros
 
 from src.model.AttBlock import AttBlock
+from src.model.AttBlockMinimal import AttBlockMinimal
 from src.model.GCN import GCN
+from src.model.GCN2 import GCN2
 
 
 class DecoderBlock(nn.Module):
@@ -18,10 +20,10 @@ class DecoderBlock(nn.Module):
         self.init_size = init_size
         self.is_first = is_first
 
-        self.gcn = GCN(device, in_size, out_size, is_first)
-        self.attBlock = AttBlock(device, f_size, in_size, out_size, init_size, att_dropout_p)
+        self.gcn = GCN2(device, in_size, out_size, is_first)
+        self.attBlock = AttBlockMinimal(device, f_size, in_size, out_size, init_size, att_dropout_p)
 
-        self.lin = Linear(out_size, out_size, bias=False, weight_initializer='glorot')
+        self.lin = Linear(out_size, out_size, bias=True, weight_initializer='glorot')
 
     def reset_parameters(self):
         self.lin.reset_parameters()

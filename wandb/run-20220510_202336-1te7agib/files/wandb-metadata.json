@@ -1,0 +1,22 @@
+{
+    "os": "Windows-10-10.0.22000-SP0",
+    "python": "3.9.7",
+    "heartbeatAt": "2022-05-10T18:23:37.358860",
+    "startedAt": "2022-05-10T18:23:36.168073",
+    "docker": null,
+    "cpu_count": 8,
+    "cuda": null,
+    "args": [],
+    "state": "running",
+    "program": "C:\\Users\\halva\\PycharmProjects\\mathRecognition\\main.py",
+    "codePath": "main.py",
+    "git": {
+        "remote": "https://github.com/VladislavHalva/GNN_mathExpressionRecognition.git",
+        "commit": "3301eca422013c155903ce64940b45c36e5f0dc0"
+    },
+    "email": "halvavl@seznam.cz",
+    "root": "C:/Users/halva/PycharmProjects/mathRecognition",
+    "host": "DESKTOP-TSOGQ8U",
+    "username": "halva",
+    "executable": "C:\\Users\\halva\\anaconda3\\envs\\mathRecognition\\python.exe"
+}

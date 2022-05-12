@@ -37,12 +37,10 @@ class GCNDecLayer(MessagePassing):
         self.lin_cc = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
 
         self.lin_h = Linear(out_size, init_size, bias=False, weight_initializer='glorot')
-        self.lin_z = Linear(out_size, out_size, bias=False, weight_initializer='glorot')
+        self.lin_z = Linear(out_size, out_size, bias=True, weight_initializer='glorot')
 
         self.bias = Parameter(torch.Tensor(out_size))
         self.reset_parameters()
-
-        self.alpha_values = None
 
     def reset_parameters(self):
         self.lin_f_att.reset_parameters()
@@ -71,7 +69,7 @@ class GCNDecLayer(MessagePassing):
         bb_h = self.lin_bb(x)
 
         if self.is_first:
-            cc_h = self.lin_cc(torch.zeros(x.size(), dtype=torch.float).to(self.device))
+            cc_h = self.lin_cc(torch.zeros(x.size(), dtype=torch.double).to(self.device))
         else:
             cc_h = self.lin_cc(x)
 
@@ -138,15 +136,14 @@ class GCNDecLayer(MessagePassing):
         h = F.glu(h_in_and_condition, dim=1)
         # compute context vector
         q = self.lin_h(h) + x_bro + x_pa
-        alpha = q @ f_att.t().contiguous()
+        alpha = torch.matmul(q, f_att.t().contiguous())
         # mask batch - values belonging to the same input
         alpha_batch_mask = (x_batch.unsqueeze(1) - f_batch.unsqueeze(0) == 0).long()
         # this adjustment to softmax leaves zeros where they used to be
-        self.alpha_values = alpha * alpha_batch_mask
         alpha = F.softmax(alpha.masked_fill((1 - alpha_batch_mask).bool(), float('-inf')), dim=1)
         alpha = F.dropout(alpha, p=self.att_dropout_p, training=self.training)
         # build context vectors based on attention to source graph
-        c = alpha @ f_context
+        c = torch.matmul(alpha, f_context)
         # combine context vector and feature vector acquired from graph convolution
         z = h + c
         z = self.lin_z(z)
