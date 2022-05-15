@@ -1,11 +1,8 @@
-import torch_geometric.nn
-import torchvision.models
 from torch import nn
 from torch_geometric.utils import remove_self_loops
 
-from src.definitions.SrtEdgeTypeExt import SrtEdgeTypesExt
 from src.model.GATConv import GATConv
-from src.model.VGG import VGG
+from src.model.GATConvV2 import GATConvV2
 from src.model.VGG11 import VGG11
 
 
@@ -17,20 +14,17 @@ class Encoder(nn.Module):
         # self.vgg = torchvision.models.vgg11(pretrained=True)
         # self.vgg.classifier[6] = nn.Linear(4096, in_size)
 
-        self.gat1 = GATConv(in_size, h_size, edge_features, edge_h_size, dropout=gat_dropout_p, heads=3)
-        self.gat2 = GATConv(h_size, h_size, edge_h_size, edge_h_size, dropout=gat_dropout_p, heads=3)
-        self.gat3 = GATConv(h_size, out_size, edge_h_size, edge_h_size, dropout=gat_dropout_p, heads=3)
+        self.gat1 = GATConvV2(in_size, h_size, edge_features, edge_h_size, dropout=gat_dropout_p, heads=3)
+        self.gat2 = GATConvV2(h_size, h_size, edge_h_size, edge_h_size, dropout=gat_dropout_p, heads=3)
+        self.gat3 = GATConvV2(h_size, out_size, edge_h_size, edge_h_size, dropout=gat_dropout_p, heads=3)
 
-        # self.gat1 = GATConv(in_size, out_size, edge_features, edge_h_size, dropout=gat_dropout_p)
-
-        self.lin_comp_out = nn.Linear(in_size, vocab_size, bias=False)
-        self.lin_etype = nn.Linear(edge_h_size, len(SrtEdgeTypesExt), bias=False)
+        self.lin_x_conv_out = nn.Linear(in_size, vocab_size, bias=False)
 
     def forward(self, x, edge_index, edge_attr):
         # extract component level visual features
         # x = x.repeat(1, 3, 1, 1)
         x = self.vgg(x)
-        comp_class = self.lin_comp_out(x)
+        x_conv_score = self.lin_x_conv_out(x)
 
         x, edge_index, edge_attr = self.gat1(x, edge_index, edge_attr)
         x, edge_index, edge_attr = self.gat2(x, edge_index, edge_attr)
@@ -39,5 +33,4 @@ class Encoder(nn.Module):
         # remove self loops added during GAT layers processing
         edge_index, edge_attr = remove_self_loops(edge_index, edge_attr)
 
-        edge_type_score = self.lin_etype(edge_attr)
-        return x, edge_index, edge_attr, comp_class, edge_type_score
+        return x, edge_index, edge_attr, x_conv_score

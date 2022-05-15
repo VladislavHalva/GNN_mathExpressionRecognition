@@ -5,7 +5,6 @@ from math import sqrt
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import cv2 as cv
-import imutils
 import numpy as np
 import torch
 import imghdr
@@ -18,7 +17,7 @@ import networkx as nx
 from torch_geometric.utils import to_networkx
 from networkx.drawing.nx_pydot import graphviz_layout
 
-from src.data.GMathData import G2GData
+from src.data.GMathData import GMathData
 from src.data.LatexVocab import LatexVocab
 from src.definitions.MathMLAnnotationType import MathMLAnnotationType
 from src.definitions.SltEdgeTypes import SltEdgeTypes
@@ -26,10 +25,20 @@ from src.definitions.SrtEdgeTypeExt import SrtEdgeTypesExt
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ItemLoadError import ItemLoadError
 from src.utils.utils import mathml_unicode_to_latex_label
+from src.utils.utilsLos import sort_components_by_distance, get_blocking_view_angles_range, \
+    is_component_visible, block_range_in_view_sections
 
 
 class CrohmeDataset(Dataset):
-    def __init__(self, images_root, inkmls_root, tokenizer, components_shape=(32, 32), tmp_path=None, substitute_terms=False, img_transform=False):
+    def __init__(self,
+                 images_root,
+                 inkmls_root,
+                 tokenizer,
+                 components_shape=(32, 32),
+                 tmp_path=None,
+                 substitute_terms=False,
+                 img_transform=False,
+                 transform=None):
         self.images_root = images_root
         self.inkmls_root = inkmls_root
         self.tokenizer = tokenizer
@@ -38,7 +47,8 @@ class CrohmeDataset(Dataset):
         self.items = []
         self.tmp_path = tmp_path
         self.substitute_terms = substitute_terms
-        self.img_transform= img_transform
+        self.img_transform = img_transform
+        self.transform = transform
 
         if not os.path.exists(self.images_root):
             raise FileNotFoundError('Images directory not found')
@@ -77,6 +87,9 @@ class CrohmeDataset(Dataset):
                 # load temp if exists
                 with open(tmp_file_path, 'rb') as tmp_file:
                     data = pickle.load(tmp_file)
+
+                    if self.transform:
+                        data = self.transform(data)
                     return data
             else:
                 # build data if temp not exists
@@ -84,22 +97,25 @@ class CrohmeDataset(Dataset):
                 x, edge_index, edge_attr, los_components = self.get_src_item(image_path)
                 # get tgt graph - SLT, and LaTeX ground-truth
                 gt, gt_ml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, comp_symbols = self.get_tgt_item(image_path, inkml_path, los_components)
-                edge_type = self.build_src_edge_type(comp_symbols, edge_index, tgt_edge_index, tgt_edge_relation)
+                # edge_type = self.build_src_edge_type(comp_symbols, edge_index, tgt_edge_index, tgt_edge_relation)
                 # build dataset item
-                data = G2GData(
+                data = GMathData(
                     x=x, edge_index=edge_index, edge_attr=edge_attr,
                     gt=gt, gt_ml=gt_ml, tgt_y=tgt_y, tgt_edge_index=tgt_edge_index,
                     tgt_edge_type=tgt_edge_type, tgt_edge_relation=tgt_edge_relation,
                     comp_symbols=comp_symbols
                 )
                 data.filename = file_name
-                data.edge_type = edge_type
+                # data.edge_type = edge_type
 
                 if self.tmp_path:
                     # save for next epoch/train run
                     if not os.path.isfile(tmp_file_path):
                         with open(tmp_file_path, 'wb') as tmp_file:
                             pickle.dump(data, tmp_file)
+
+                if self.transform:
+                    data = self.transform(data)
 
                 return data
         except Exception as e:
@@ -134,10 +150,11 @@ class CrohmeDataset(Dataset):
                     edge_type[src_edge_i] = relation
         return edge_type
 
-    def  get_src_item(self, image_path):
+    def get_src_item(self, image_path):
         # extract components and build LoS graph
-        components, components_mask = self.extract_components_from_image(image_path)
-        edges, edge_features = self.get_line_of_sight_edges(components, components_mask)
+        components, component_images, components_mask = self.extract_components_from_image(image_path)
+        edges = self.get_line_of_sight_edges(components)
+        edge_features = self.compute_los_edge_features(edges, components, components_mask)
         # self.draw_los(image_path, components, edges)
 
         # plot components
@@ -147,22 +164,21 @@ class CrohmeDataset(Dataset):
         # col = 0
         # _, axs = plt.subplots(rows, cols, figsize=(32, 32))
         # axs = axs.flatten()
-        # for component, ax in zip(components, axs):
-        #     image = component['image']
+        # for component, ax in zip(component_images, axs):
+        #     image = component
         #     ax.imshow(image)
         # plt.show()
 
         # BUILD PyG GRAPH DATA ELEMENT
         # input components images
-        component_images = [component['image'] for component in components]
         component_images = np.array(component_images)
 
         # image rotation code - backup
-        if self.img_transform:
-            for i, component_image in enumerate(component_images):
-                rotation_angle = float(random.randint(-30, 30))
-                component_image = imutils.rotate(component_image, angle=rotation_angle)
-                component_images[i] = component_image
+        # if self.img_transform:
+        #     for i, component_image in enumerate(component_images):
+        #         rotation_angle = float(random.randint(-30, 30))
+        #         component_image = imutils.rotate(component_image, angle=rotation_angle)
+        #         component_images[i] = component_image
 
         x = torch.tensor(
             component_images,
@@ -231,6 +247,7 @@ class CrohmeDataset(Dataset):
             image=inv_img, connectivity=8, ltype=cv.CV_32S)
         # extract separate components - 0 is background
         components = []
+        component_images = []
         for i in range(1, num_labels):
             x = stats[i, cv.CC_STAT_LEFT]
             y = stats[i, cv.CC_STAT_TOP]
@@ -252,8 +269,8 @@ class CrohmeDataset(Dataset):
             _, component = cv.threshold(component, 128, 255, cv.THRESH_BINARY + cv.THRESH_OTSU)
             # invert so that bg is zero
             component = 255 - component
+            component_images.append(component)
             components.append({
-                'image': component,
                 'bbox': [
                     (x, y),
                     (x + w, y),
@@ -264,37 +281,34 @@ class CrohmeDataset(Dataset):
             })
         # shift components by one in mask -> so that they match their ids in components list
         components_mask = labels - 1
-        return components, components_mask
+        return components, component_images, components_mask
 
-    def get_line_of_sight_edges(self, components, components_mask):
-        # getting edge-set
+    def get_line_of_sight_edges(self, components):
         edges = []
-        # enumerate all possible edges - undirected
-        for i in range(len(components)):
-            startpoint = (int(components[i]['centroid'][0]),
-                          int(components[i]['centroid'][1]))
-            for j in range(i + 1, len(components)):
-                endpoint = (int(components[j]['centroid'][0]),
-                            int(components[j]['centroid'][1]))
-
-                # test if line collides with some other component
-                some_collision = False
-                for c_idx in [x for x in range(len(components)) if x != i and x != j]:
-                    c_bbox = components[c_idx]['bbox']
-                    collides = self.line_and_rect_intersect([startpoint, endpoint], c_bbox)
-
-                    if collides:
-                        some_collision = True
-                        break
-                # no collision - append to final edge-set
-                if not some_collision:
+        for i, component in enumerate(components):
+            # set free view angle of component to 360 degrees
+            unblocked_view = [[0.0, 360.0]]
+            c_i_center = component['centroid']
+            # get other components sorted by ascending distance from component i
+            other_components_order = sort_components_by_distance(c_i_center, components, i)
+            for j in other_components_order:
+                c_j = components[j]
+                c_j_center = c_j['centroid']
+                # get the view angles range that this component shadows/covers
+                blocking_view = get_blocking_view_angles_range(c_i_center, c_j['bbox'])
+                # if the components is fully visible from centroid, add visibility edge
+                is_visible = is_component_visible(unblocked_view, blocking_view)
+                if is_visible:
                     edges.append({
                         'components': [i, j],
-                        'start': startpoint,
-                        'end': endpoint
+                        'start': c_i_center,
+                        'end': c_j_center
                     })
+                # update free view angle by shadowing the currently processed component angle range
+                unblocked_view = block_range_in_view_sections(unblocked_view, blocking_view)
+        return edges
 
-        # extracting edge features
+    def compute_los_edge_features(self, edges, components, components_mask):
         edge_features = []
         for edge in edges:
             # get corresponding components
@@ -341,7 +355,7 @@ class CrohmeDataset(Dataset):
                 bbox_w_ratio, bbox_h_ratio,
                 bbox_diagonal_ratio
             ])
-        return edges, edge_features
+        return edge_features
 
     def add_backward_edge_attr(self, edge_attr):
         """
@@ -386,7 +400,9 @@ class CrohmeDataset(Dataset):
         for edge in edges:
             (sX, sY) = edge['start']
             (eX, eY) = edge['end']
-            cv.line(img, (int(sX), int(sY)), (int(eX), int(eY)), (255, 0, 0), 1)
+            color = (255, 0, 0)
+            color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
+            cv.line(img, (int(sX), int(sY)), (int(eX), int(eY)), color, 1)
 
         plt.imshow(img)
         plt.show()
@@ -654,12 +670,24 @@ class CrohmeDataset(Dataset):
                           mathml_ns + 'mspace', mathml_ns + 'ms']:
             id = root.attrib.get(xml_ns + 'id')
             if self.substitute_terms:
-                if root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mtext']:
+                if root.tag == mathml_ns + 'mn':
                     s.append({
                         'id': id,
-                        'symbol': '<TERM>'
+                        'symbol': '<NUM>'
                     })
-                    sequence = ['<TERM>']
+                    sequence = ['<NUM>']
+                elif root.tag == mathml_ns + 'mi':
+                    s.append({
+                        'id': id,
+                        'symbol': '<ID>'
+                    })
+                    sequence = ['<ID>']
+                elif root.tag == mathml_ns + 'mtext':
+                    s.append({
+                        'id': id,
+                        'symbol': '<TEXT>'
+                    })
+                    sequence = ['<TEXT>']
                 else:
                     s.append({
                         'id': id,

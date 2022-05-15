@@ -41,7 +41,6 @@ class GCN(MessagePassing):
         h = self.propagate(gg=gg, pc=pc, bb=bb, cc=cc, edge_index=edge_index, edge_type=edge_type)
         h_in_and_condition = torch.cat([h, h], dim=1)
         h = F.glu(h_in_and_condition, dim=1)
-        # h = F.relu(h)
         return h
 
     def message(self, gg_j, pc_j, bb_j, cc_j, edge_index, edge_type):

@@ -1,7 +1,7 @@
 from torch_geometric.data import Data
 
 
-class G2GData(Data):
+class GMathData(Data):
     def __init__(
             self,
             x=None, edge_index=None, edge_attr=None,

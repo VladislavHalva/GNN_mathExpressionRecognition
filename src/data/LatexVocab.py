@@ -4,17 +4,13 @@ import xml.etree.ElementTree as ET
 from tqdm import tqdm
 import re
 
-from tokenizers.pre_tokenizers import Whitespace, Digits, Sequence, Split
-from tokenizers import Tokenizer, pre_tokenizers
+from tokenizers.pre_tokenizers import Split
+from tokenizers import Tokenizer
 from tokenizers.processors import TemplateProcessing
-from tokenizers.models import BPE, WordPiece, WordLevel
-from tokenizers.trainers import BpeTrainer, WordPieceTrainer, WordLevelTrainer
+from tokenizers.models import WordLevel
+from tokenizers.trainers import WordLevelTrainer
 
-from pylatexenc.latexwalker import LatexWalker, LatexMathNode
-
-from src.data.LTokenizer import LTokenizer
 from src.definitions.MathMLAnnotationType import MathMLAnnotationType
-from src.definitions.exceptions.ItemLoadError import ItemLoadError
 from src.utils.utils import mathml_unicode_to_latex_label
 
 
@@ -96,7 +92,6 @@ class LatexVocab:
         symbols = []
         for formula in formulas:
             symbols.extend(formula.split(' '))
-        # symbols = set(symbols)
 
         with open(tgt_file, 'w') as fd:
             fd.write(' '.join(symbols))
@@ -108,8 +103,12 @@ class LatexVocab:
         if root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mo', mathml_ns + 'mtext',
                         mathml_ns + 'mspace', mathml_ns + 'ms']:
             if substitute_terms:
-                if root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mtext']:
-                    return ['<TERM>']
+                if root.tag == mathml_ns + 'mn':
+                    return ['<NUM>']
+                elif root.tag == mathml_ns + 'mi':
+                    return ['<ID>']
+                elif root.tag == mathml_ns + 'mtext':
+                    return ['<TEXT>']
                 else:
                     return [root.text]
             else:

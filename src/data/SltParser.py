@@ -34,6 +34,7 @@ class SltParser:
             children_order = first_node
             for _ in range(len(children_ids) - 1):
                 current_node = children_order[-1]
+                # TODO řádek nad hází chybu
                 next_child = [edge[1] for edge in bb_edge_index if edge[0] == current_node]
                 if len(next_child) == 0:
                     raise SltStructureError()

@@ -1,17 +1,12 @@
 import logging
 
-import torch
-
 from src.Trainer import Trainer
-from src.utils.helper_functions import cpy_images_inkml_gt
-import wandb
 
 if __name__ == '__main__':
-    # wandb.init(project="mer-local", entity="vladislavhalva-team")
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
-    train = False
+    train = True
     evaluate = True
 
     trainer = Trainer(
@@ -20,25 +15,47 @@ if __name__ == '__main__':
         vocab_path='assets/vocab.txt',
         load_vocab=True,
         inkml_folder_vocab='assets/crohme/train/inkml',
-        load_model='checkpoints/MER_tSimple_eSimple_22-05-12_20-26-55_final.pth',
+        load_model=None,
         writer='runs/',
         temp_path=None
     )
 
     if train:
+        loss_config = {
+            'loss_convnet': 0.0,
+            'loss_encoder_nodes': 0.0,
+            'loss_attention': 0.0,
+            'loss_decoder_nodes': 1.0,
+            'loss_decoder_edges': 1.0,
+            'loss_decoder_end_nodes': 0.0
+        }
+
         trainer.set_eval_during_training(
             images_root='assets/crohme/simple/img/',
             inkmls_root='assets/crohme/simple/inkml/',
             batch_size=1,
             print_stats=True,
-            print_item_level_stats=True,
-            each_nth_epoch=1
+            print_item_level_stats=False,
+            each_nth_epoch=5,
+            beam_search=True,
+            beam_width=3
         )
+        # trainer.set_second_eval_during_training(
+        #     images_root='assets/crohme/simple/img/',
+        #     inkmls_root='assets/crohme/simple/inkml/',
+        #     batch_size=1,
+        #     print_stats=True,
+        #     print_item_level_stats=False,
+        #     each_nth_epoch=3,
+        #     beam_search=False,
+        #     beam_width=3
+        # )
         trainer.train(
             images_root='assets/crohme/simple/img/',
             inkmls_root='assets/crohme/simple/inkml/',
-            epochs=150,
-            batch_size=2,
+            epochs=100,
+            batch_size=6,
+            loss_config=loss_config,
             save_model_dir='checkpoints/',
             save_checkpoint_each_nth_epoch=0
         )
@@ -51,6 +68,8 @@ if __name__ == '__main__':
             print_stats=True,
             print_item_level_stats=True,
             store_results_dir=None,
-            results_author='Vladislav Halva'
+            results_author='Vladislav Halva',
+            beam_search=True,
+            beam_width=3
         )
 

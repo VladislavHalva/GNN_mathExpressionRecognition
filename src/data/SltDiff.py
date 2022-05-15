@@ -45,6 +45,9 @@ class SltDiff:
         self.result['exact_match_2'] = \
             self.result['structure_match'] and \
             (self.result['node_class_errors'] + self.result['edge_class_errors']) <= 2
+        self.result['exact_match_3'] = \
+            self.result['structure_match'] and \
+            (self.result['node_class_errors'] + self.result['edge_class_errors']) <= 3
 
     def traverse_subtree(self, a_root, b_root):
         a_token = self.a_tk[a_root] if a_root is not None else None

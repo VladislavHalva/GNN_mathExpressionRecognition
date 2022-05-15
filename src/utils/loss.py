@@ -31,7 +31,8 @@ def masked_softmax(vector, mask, dim=-1, mask_fill_value=float('-inf')):
     result = torch.nn.functional.softmax(masked_vector, dim=dim)
     return result
 
-def calculate_loss(out, end_node_token_id, device, writer, writer_idx=0):
+
+def calculate_loss(out, end_node_token_id, device, writer, loss_config: object = None, writer_idx=0):
     # calculate loss for output graph node predictions
     loss_out_node = F.cross_entropy(out.y_score, out.tgt_y)
 
@@ -39,19 +40,12 @@ def calculate_loss(out, end_node_token_id, device, writer, writer_idx=0):
     loss_end_nodes = loss_termination(out.y_score, out.tgt_y, end_node_token_id)
 
     # calculate loss for source graph node predictions
-    # train to predict symbol from component
     x_gt_node = out.attn_gt.argmax(dim=0)
     x_gt = out.tgt_y[x_gt_node]
     loss_enc_nodes = F.cross_entropy(out.x_score, x_gt)
 
-    # calculate loss for source graph edge predictions
-    if out.edge_type.shape[0] > 0:
-        loss_enc_edges = F.cross_entropy(out.edge_type_score, out.edge_type)
-    else:
-        loss_enc_edges = torch.tensor(0, dtype=torch.double)
-
     # compute loss for components classification
-    loss_comp_class = F.cross_entropy(out.comp_class, x_gt)
+    loss_enc_conv_nodes = F.cross_entropy(out.x_conv_score, x_gt)
 
     # # calculate loss for attention to source graph
     # average attentions in all decoder GCN layers
@@ -61,22 +55,10 @@ def calculate_loss(out, end_node_token_id, device, writer, writer_idx=0):
     block3_attn = out.gcn1_alpha
     attn_gt = out.attn_gt * 100
 
-    # # no_end_node_indices = (out.tgt_y != end_node_token_id).long()
-    # # no_end_node_mask = no_end_node_indices.unsqueeze(1).repeat(1, out.x.shape[0])
-
-    # attn_gt = masked_log_softmax(attn_gt, alpha_batch_mask, dim=1)
-    # block1_attn = masked_log_softmax(block1_attn, alpha_batch_mask, dim=1)
-    # block2_attn = masked_log_softmax(block2_attn, alpha_batch_mask, dim=1)
-    # block3_attn = masked_log_softmax(block3_attn, alpha_batch_mask, dim=1)
-    # loss_block1_attn = F.kl_div(block1_attn, attn_gt, reduction='sum', log_target=True)
-    # loss_block2_attn = F.kl_div(block2_attn, attn_gt, reduction='sum', log_target=True)
-    # loss_block3_attn = F.kl_div(block3_attn, attn_gt, reduction='sum', log_target=True)
-
     attn_gt = masked_softmax(attn_gt, alpha_batch_mask, dim=1)
-    loss_block1_attn = F.mse_loss(block1_attn, attn_gt, reduction='mean')
-    loss_block2_attn = F.mse_loss(block2_attn, attn_gt, reduction='mean')
-    loss_block3_attn = F.mse_loss(block3_attn, attn_gt, reduction='mean')
-
+    loss_block1_attn = F.mse_loss(block1_attn, attn_gt, reduction='sum')
+    loss_block2_attn = F.mse_loss(block2_attn, attn_gt, reduction='sum')
+    loss_block3_attn = F.mse_loss(block3_attn, attn_gt, reduction='sum')
     loss_block_attn_mean = torch.mean(torch.stack([loss_block1_attn, loss_block2_attn, loss_block3_attn]))
 
     # calculate loss for output graph SRT edge type predictions - take in account only parent-child edges
@@ -85,34 +67,28 @@ def calculate_loss(out, end_node_token_id, device, writer, writer_idx=0):
     out_pc_edge_relation = out.y_edge_rel_score[tgt_edge_pc_indices]
     loss_out_edge = F.cross_entropy(out_pc_edge_relation, tgt_pc_edge_relation)
 
-    # losses_out_edge = F.cross_entropy(out.y_edge_rel_score, out.tgt_edge_relation, reduction='none')
-    # tgt_edge_pc_mask = (out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).long()
-    # losses_out_edge = losses_out_edge * tgt_edge_pc_mask
-    # loss_out_edge = torch.mean(losses_out_edge)
-
     if writer:
         writer.add_scalar('ItemLossOutNode/train', loss_out_node.item(), writer_idx)
         writer.add_scalar('ItemLossOutEdge/train', loss_out_edge.item(), writer_idx)
-        writer.add_scalar('ItemLossVggClass/train', loss_comp_class.item(), writer_idx)
+        writer.add_scalar('ItemLossVggClass/train', loss_enc_conv_nodes.item(), writer_idx)
         writer.add_scalar('ItemLossEncNode/train', loss_enc_nodes.item(), writer_idx)
-        writer.add_scalar('ItemLossEncEdge/train', loss_enc_edges.item(), writer_idx)
         writer.add_scalar('ItemLossAttn/train', loss_block_attn_mean.item(), writer_idx)
         writer.add_scalar('ItemLossLeafNode/train', loss_end_nodes.item(), writer_idx)
 
-    # print(loss_out_node)
-    # print(loss_out_edge)
-    # print(loss_comp_class)
-    # print(loss_enc_nodes)
-    # print(loss_enc_edges)
-    # print(loss_block_attn_mean)
-    # print(loss_end_nodes)
-
-    loss = \
-        loss_out_node + \
-        loss_out_edge + \
-        0.5 * loss_comp_class + \
-        0.5 * loss_enc_nodes + \
-        0.5 * loss_enc_edges + \
-        0.5 * loss_end_nodes + \
-        0.6 * loss_block_attn_mean
+    if loss_config is None:
+        loss = \
+            loss_out_node + \
+            loss_out_edge + \
+            0.3 * loss_enc_conv_nodes + \
+            0.4 * loss_enc_nodes + \
+            0.2 * loss_end_nodes + \
+            0.1 * loss_block_attn_mean
+    else:
+        loss = \
+            loss_config['loss_convnet'] * loss_enc_conv_nodes + \
+            loss_config['loss_encoder_nodes'] * loss_enc_nodes + \
+            loss_config['loss_attention'] * loss_block_attn_mean + \
+            loss_config['loss_decoder_nodes'] * loss_out_node + \
+            loss_config['loss_decoder_edges'] * loss_out_edge + \
+            loss_config['loss_decoder_end_nodes'] * loss_end_nodes
     return loss

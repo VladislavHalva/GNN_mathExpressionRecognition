@@ -6,7 +6,7 @@ from rapidfuzz.distance import Levenshtein
 import numpy as np
 import torch
 
-from src.data.GMathData import G2GData
+from src.data.GMathData import GMathData
 from src.data.SltDiff import SltDiff
 from src.data.SltParser import SltParser
 
@@ -31,10 +31,15 @@ def create_attn_gt(data_batch, end_node_token_id):
         batch_masks.append(batch_mask)
     # set attention for end leaf nodes as uniform among all components belonging to the same batch item
     # --> whole formula
-    # for i, y_i in enumerate(data_batch.tgt_y):
-    #     if y_i == end_node_token_id:
-    #         batch_index = data_batch.tgt_y_batch[i]
-    #         attn_gt[i][batch_masks[batch_index]] = 1 / batch_masks[batch_index].shape[0]
+    for i, y_i in enumerate(data_batch.tgt_y):
+        if y_i == end_node_token_id:
+            # select the same attention as for parent node
+            for e_i, e in enumerate(data_batch.tgt_edge_index.t()):
+                if e[1] == i:
+                    attn_gt[i] = attn_gt[e[0]]
+            # OR mean across batch
+            # batch_index = data_batch.tgt_y_batch[i]
+            # attn_gt[i][batch_masks[batch_index]] = 1 / batch_masks[batch_index].shape[0]
 
     data_batch.attn_gt = attn_gt
     return data_batch
@@ -71,8 +76,6 @@ def split_databatch(databatch):
         edge_index_b[0] = (edge_index_b[0].view(-1, 1) == x_b_ids).int().argmax(dim=1)
         edge_index_b[1] = (edge_index_b[1].view(-1, 1) == x_b_ids).int().argmax(dim=1)
         edge_attr_b = db.edge_attr[edge_index_b_ids]
-        edge_type_b = db.edge_type[edge_index_b_ids]
-        edge_type_score_b = db.edge_type_score[edge_index_b_ids]
 
         # get target graph elements for current batch item
         tgt_y_b = db.tgt_y[tgt_y_b_ids]
@@ -97,7 +100,7 @@ def split_databatch(databatch):
         y_edge_rel_score_b = db.y_edge_rel_score[y_edge_index_b_ids]
 
         # create new data-element with data for current batch item only
-        data_b = G2GData(
+        data_b = GMathData(
             x=x_b, edge_index=edge_index_b, edge_attr=edge_attr_b,
             gt=gt_b, gt_ml=gt_ml_b, tgt_y=tgt_y_b, tgt_edge_index=tgt_edge_index_b,
             tgt_edge_type=tgt_edge_type_b, tgt_edge_relation=tgt_edge_relation_b,
@@ -110,8 +113,6 @@ def split_databatch(databatch):
         data_b.y_edge_index = y_edge_index_b
         data_b.y_edge_type = y_edge_type_b
         data_b.y_edge_rel_score = y_edge_rel_score_b
-        data_b.edge_type = edge_type_b
-        data_b.edge_type_score = edge_type_score_b
         data_elems.append(data_b)
 
     return data_elems
@@ -143,7 +144,6 @@ def compute_single_item_stats(data, tokenizer):
 
     # calculate edit-distance
     # on latex GT created from MathML --> Latex GT in files often differs
-    stats['edit_distance_str'] = Levenshtein.distance(gt_ml, latex)
     stats['edit_distance_seq'] = Levenshtein.distance(gt_ml_symbols, latex_symbols)
 
     # calculate difference of Symbol Layout Trees
