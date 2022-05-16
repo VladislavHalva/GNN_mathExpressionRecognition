@@ -1,3 +1,11 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 import os.path
 import re
 from datetime import date
@@ -12,6 +20,12 @@ from src.data.SltParser import SltParser
 
 
 def create_attn_gt(data_batch, end_node_token_id):
+    """
+    Creates target decoder source graph attention coefficients.
+    :param data_batch: batch data object
+    :param end_node_token_id: end leaf node token id
+    :return:
+    """
     comp_symbols = data_batch.comp_symbols
     # create empty attention matrix
     attn_gt = np.zeros((comp_symbols.shape[0], data_batch.tgt_y.shape[0]))
@@ -46,6 +60,11 @@ def create_attn_gt(data_batch, end_node_token_id):
 
 
 def split_databatch(databatch):
+    """
+    Splits databatch to separate data object including model outputs.
+    :param databatch: data batch object
+    :return: list of data objects
+    """
     db = databatch
     batch_ids = torch.unique(db.x_batch, sorted=True)
     data_elems = []
@@ -61,11 +80,9 @@ def split_databatch(databatch):
             filename_b = db.filename[filename_b_id]
         else:
             filename_b = None
-
         # get latex GTs for current batch item
         gt_b = db.gt[gt_b_ids]
         gt_ml_b = db.gt_ml[gt_ml_b_ids]
-
         # get source graph elements for current batch item
         x_b = db.x[x_b_ids]
         comp_symbols_b = db.comp_symbols[x_b_ids]
@@ -76,7 +93,6 @@ def split_databatch(databatch):
         edge_index_b[0] = (edge_index_b[0].view(-1, 1) == x_b_ids).int().argmax(dim=1)
         edge_index_b[1] = (edge_index_b[1].view(-1, 1) == x_b_ids).int().argmax(dim=1)
         edge_attr_b = db.edge_attr[edge_index_b_ids]
-
         # get target graph elements for current batch item
         tgt_y_b = db.tgt_y[tgt_y_b_ids]
         attn_gt_b = db.attn_gt[tgt_y_b_ids]
@@ -87,7 +103,6 @@ def split_databatch(databatch):
         tgt_edge_index_b[1] = (tgt_edge_index_b[1].view(-1, 1) == tgt_y_b_ids).int().argmax(dim=1)
         tgt_edge_type_b = db.tgt_edge_type[tgt_edge_index_b_ids]
         tgt_edge_relation_b = db.tgt_edge_relation[tgt_edge_index_b_ids]
-
         # get output graph elements for current batch item
         y_b = db.y[y_b_ids]
         y_score_b = db.y_score[y_b_ids]
@@ -98,7 +113,6 @@ def split_databatch(databatch):
         y_edge_index_b[1] = (y_edge_index_b[1].view(-1, 1) == y_b_ids).int().argmax(dim=1)
         y_edge_type_b = db.y_edge_type[y_edge_index_b_ids]
         y_edge_rel_score_b = db.y_edge_rel_score[y_edge_index_b_ids]
-
         # create new data-element with data for current batch item only
         data_b = GMathData(
             x=x_b, edge_index=edge_index_b, edge_attr=edge_attr_b,
@@ -114,11 +128,16 @@ def split_databatch(databatch):
         data_b.y_edge_type = y_edge_type_b
         data_b.y_edge_rel_score = y_edge_rel_score_b
         data_elems.append(data_b)
-
     return data_elems
 
 
 def compute_single_item_stats(data, tokenizer):
+    """
+    Evaluates recognition for single data item.
+    :param data: data object of single item with model output.
+    :param tokenizer: tokenizer
+    :return: stats dictionary
+    """
     stats = {}
 
     # get token and edge relations predictions
@@ -172,6 +191,13 @@ def compute_single_item_stats(data, tokenizer):
 
 
 def mathml_unicode_to_latex_label(label, skip_curly_brackets=False):
+    """
+    Converts MathML unicode symbols to latex label.
+    Derived from CROHMELib function. https://www.cs.rit.edu/~crohme2019/dataANDtools.html
+    :param label: mathml symbol
+    :param skip_curly_brackets: whether to avoid escaping curly brackets or not
+    :return: latex label for mathml symbol
+    """
     if label in ['alpha', 'beta', 'sin', 'cos', 'tan', 'rightarrow', 'sum', 'int', 'pi',
                  'leq', 'lim', 'geq', 'infty', 'prime', 'times', 'pm', 'log']:
         return '\\' + label
@@ -218,6 +244,15 @@ def mathml_unicode_to_latex_label(label, skip_curly_brackets=False):
 
 
 def create_latex_result_file(directory, filename, latex, author):
+    """
+    Creates recognition result file compatible with CROHMELib evaluation tools.
+    (https://www.cs.rit.edu/~crohme2019/dataANDtools.html)
+    :param directory: folder where result files will be stored
+    :param filename: filename (has to match image filename)
+    :param latex: recognition result latex string
+    :param author: authon name used as signature
+    :return: True if success, False otherwise
+    """
     if not os.path.exists(directory):
         return False
 

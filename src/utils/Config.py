@@ -1,3 +1,11 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 import json
 import logging
 import os
@@ -5,7 +13,14 @@ from json import JSONDecodeError
 
 
 class Config:
+    """
+    App configuration handler.
+    """
     def __init__(self, filepath):
+        """
+        Load configuration from JSON file and initialize parsing.
+        :param filepath:
+        """
         self.config = {}
         self.error = False
         self.error_messages = []
@@ -23,6 +38,10 @@ class Config:
             self.parse_config()
 
     def getset_error(self, error_message=None):
+        """
+        Set error and print all error, that occurred.
+        :param error_message: new error message
+        """
         logging.error("Configuration error: ")
         if error_message is not None:
             self.error_messages.append(error_message)
@@ -31,11 +50,17 @@ class Config:
             logging.error(error_message)
 
     def get_error(self):
+        """
+        Print errors.
+        """
         logging.error("Configuration error: ")
         for error_message in self.error_messages:
             logging.error(error_message)
 
     def parse_config(self):
+        """
+        Parsing of configuration file.
+        """
         d = self.data
         # DEVICE
         if 'device' in d and d['device'] in ['gpu', 'cpu']:
@@ -315,6 +340,10 @@ class Config:
                 self.config['evaluate']['batch_size'] = 1
 
     def get(self):
+        """
+        Getter for configuration dictionary.
+        :return: config or None if error
+        """
         if not self.error:
             return self.config
         else:
@@ -322,6 +351,9 @@ class Config:
             return None
 
     def print(self):
+        """
+        Print loaded configuration to STDOUT.
+        """
         if self.error:
             self.get_error()
         else:

@@ -1,3 +1,12 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
+
 import torch
 import torch.nn.functional as F
 
@@ -5,6 +14,12 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 
 
 def loss_termination(logits, gt, termination_token):
+    """
+    Calculates loss for leaf end nodes classification.
+    :param logits: logits of output graph nodes
+    :param gt: target token ids of output graph nodes
+    :param termination_token: leaf end nodes token id
+    """
     termination_tokens_mask = (gt == termination_token).to(torch.long)
     ce_loss = F.cross_entropy(logits, gt, reduction='none')
     ce_loss_masked = ce_loss * termination_tokens_mask
@@ -13,26 +28,55 @@ def loss_termination(logits, gt, termination_token):
 
 
 def masked_mse_loss(input, target, mask):
+    """
+    Computes MSE loss on items given by mask.
+    :param input: input tensor
+    :param target: target tensor
+    :param mask: mask tensor
+    """
     diff2 = (torch.flatten(input) - torch.flatten(target)) ** 2.0 * torch.flatten(mask)
     result = torch.sum(diff2) / torch.sum(mask)
     return result
 
 
-def masked_log_softmax(vector, mask, dim=-1):
+def masked_log_softmax(x, mask, dim=-1):
+    """
+    Masked log(softmax(x)) operation
+    :param x: input tensor
+    :param mask: mask
+    :param dim: dimension along which perform softmax
+    """
     if mask is not None:
         mask = mask.float()
-        vector = vector + (mask + 1e-45).log()
-    return torch.nn.functional.log_softmax(vector, dim=dim)
+        x = x + (mask + 1e-45).log()
+    return torch.nn.functional.log_softmax(x, dim=dim)
 
 
-def masked_softmax(vector, mask, dim=-1, mask_fill_value=float('-inf')):
+def masked_softmax(x, mask, dim=-1, mask_fill_value=float('-inf')):
+    """
+    Masked softmax(x) operation.
+    :param x: input tensor
+    :param mask: mask
+    :param dim: dimension along which perform softmax
+    :param mask_fill_value: value that will be used to fill masked values
+    """
     mask = mask.float()
-    masked_vector = vector.masked_fill((1 - mask).bool(), mask_fill_value)
+    masked_vector = x.masked_fill((1 - mask).bool(), mask_fill_value)
     result = torch.nn.functional.softmax(masked_vector, dim=dim)
     return result
 
 
 def calculate_loss(out, end_node_token_id, device, writer, loss_config: object = None, writer_idx=0):
+    """
+    Calculates overall loss for model on batch.
+    :param out: output of model
+    :param end_node_token_id: end leaf node token id
+    :param device: device
+    :param writer: summary writer object
+    :param loss_config: loss configuration dictionary specifying loss components coefficients
+    :param writer_idx: id to distinct summary writer scalars
+    :return: loss value with grad_fn
+    """
     # calculate loss for output graph node predictions
     loss_out_node = F.cross_entropy(out.y_score, out.tgt_y)
 

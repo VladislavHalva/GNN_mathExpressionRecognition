@@ -1,3 +1,11 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 import logging
 import os.path
 from datetime import datetime
@@ -19,7 +27,14 @@ from src.utils.utils import create_attn_gt, split_databatch, compute_single_item
 
 
 class Trainer:
+    """
+    Wrapper for training a evaluating the model.
+    """
     def __init__(self, config):
+        """
+        Configures model, tokenizer and summary writer.
+        :param config: configuration setup - dictionary generated with Config class
+        """
         self.config = config
         # define metaparameters
         self.components_shape = (32, 32)
@@ -49,12 +64,14 @@ class Trainer:
 
         # load or create tokenizer
         if config['vocabulary']['load_tokenizer'] and os.path.exists(config['vocabulary']['tokenizer_filepath']):
+            # load
             self.tokenizer = LatexVocab.load_tokenizer(config['vocabulary']['tokenizer_filepath'])
             logging.info(f"Tokenizer loaded from: {config['vocabulary']['tokenizer_filepath']}")
         elif config['vocabulary']['inkml_folder_for_vocab'] is not None and \
                 config['vocabulary']['vocab_filepath'] is not None and \
                 os.path.exists(config['vocabulary']['vocab_filepath']) and \
                 os.path.exists(config['vocabulary']['inkml_folder_for_vocab']):
+            # create
             LatexVocab.generate_formulas_file_from_inkmls(
                 config['vocabulary']['inkml_folder_for_vocab'],
                 config['vocabulary']['vocab_filepath'],
@@ -80,6 +97,8 @@ class Trainer:
             self.vocab_size, self.end_node_token_id, self.tokenizer,
             self.enc_vgg_dropout_p, self.enc_gat_dropout_p, self.dec_emb_dropout_p, self.dec_att_dropout_p)
         self.model.double()
+
+        #load mode state dict
         if config['model']['load'] and os.path.exists(config['model']['load_state_dict']):
             self.model.load_state_dict(torch.load(config['model']['load_state_dict'], map_location=self.device))
             logging.info(f"Model loaded: {config['model']['load_state_dict']}")
@@ -95,6 +114,7 @@ class Trainer:
         else:
             self.writer = False
 
+        # set temporary data storage
         if config['tmp_data_storage_folder'] is not None and os.path.exists(config['tmp_data_storage_folder']):
             self.temp_path = config['tmp_data_storage_folder']
         else:
@@ -106,15 +126,32 @@ class Trainer:
         self.second_eval_train_settings = None
 
     def unset_eval_during_training(self):
+        """
+        Disabled first evaluation settings during training.
+        """
         self.eval_during_training = False
         self.eval_train_settings = None
 
     def unset_second_eval_during_training(self):
+        """
+        Disabled first evaluation settings during training.
+        """
         self.second_eval_during_training = False
         self.second_eval_train_settings = None
 
     def set_eval_during_training(self, images_root, inkmls_root, batch_size, print_stats,
                                  print_item_level_stats, each_nth_epoch=1, beam_search=True, beam_width=3):
+        """
+        Sets first evaluation of model during training.
+        :param images_root: images folder
+        :param inkmls_root: inkml files folder
+        :param batch_size: batch_size, if beam search needs to be zero
+        :param print_stats: print statistics to STDOUT
+        :param print_item_level_stats: print item level statistics to STDOUT
+        :param each_nth_epoch: run evaluation each n-th epoch
+        :param beam_search: if True Beam search will be used for output graph generation, Greedy search otherwise
+        :param beam_width: beam width of Beam search
+        """
         if os.path.exists(images_root) and os.path.exists(inkmls_root) and each_nth_epoch > 0:
             self.eval_during_training = True
             self.eval_train_settings = {
@@ -130,6 +167,17 @@ class Trainer:
 
     def set_second_eval_during_training(self, images_root, inkmls_root, batch_size, print_stats,
                                  print_item_level_stats, each_nth_epoch=1, beam_search=True, beam_width=3):
+        """
+        Sets second evaluation of model during training.
+        :param images_root: images folder
+        :param inkmls_root: inkml files folder
+        :param batch_size: batch_size, if beam search needs to be zero
+        :param print_stats: print statistics to STDOUT
+        :param print_item_level_stats: print item level statistics to STDOUT
+        :param each_nth_epoch: run evaluation each n-th epoch
+        :param beam_search: if True Beam search will be used for output graph generation, Greedy search otherwise
+        :param beam_width: beam width of Beam search
+        """
         if os.path.exists(images_root) and os.path.exists(inkmls_root) and each_nth_epoch > 0:
             self.second_eval_during_training = True
             self.second_eval_train_settings = {
@@ -144,6 +192,16 @@ class Trainer:
             }
 
     def train(self, images_root, inkmls_root, epochs, batch_size=1, loss_config=None, save_model_dir=None, save_checkpoint_each_nth_epoch=0):
+        """
+        Trains model.
+        :param images_root: images folder
+        :param inkmls_root: inkml files folder
+        :param epochs: number of train epochs
+        :param batch_size: batch size
+        :param loss_config: loss configuration dictionary - coefficients of single loss components
+        :param save_model_dir: folder where, model state dicts will be saved
+        :param save_checkpoint_each_nth_epoch: how often save state dict checkpoint
+        """
         logging.info("\nTraining...")
 
         optimizer = optim.Adam(self.model.parameters(), lr=0.0003)
@@ -184,6 +242,7 @@ class Trainer:
 
                 optimizer.step()
 
+                # training evaluation
                 batch_stats = self.evaluate_training(out.detach())
                 epoch_stats['symbol_count'] += batch_stats['symbol_count']
                 epoch_stats['correct_symbol_count'] += batch_stats['correct_symbol_count']
@@ -212,6 +271,7 @@ class Trainer:
                 self.writer.add_scalar('EpochLossAvg/train', epoch_loss/len(trainloader)/batch_size, epoch)
 
             if save_checkpoint_each_nth_epoch != 0 and epoch % save_checkpoint_each_nth_epoch == save_checkpoint_each_nth_epoch - 1:
+                # save model checkpoint
                 save_model_check_name = self.model_name + '_' + str(epoch) + '.pth'
                 torch.save(self.model.state_dict(), os.path.join(save_model_dir, save_model_check_name))
 
@@ -234,6 +294,7 @@ class Trainer:
             logging.info(f" edge class acc:   {epoch_stats['edge_acc'] * 100:.3f}%")
 
             if self.eval_during_training and epoch % self.eval_train_settings['each_nth_epoch'] == self.eval_train_settings['each_nth_epoch'] - 1:
+                # model first evaluation
                 self.evaluate(
                     self.eval_train_settings['images_root'],
                     self.eval_train_settings['inkmls_root'],
@@ -246,6 +307,7 @@ class Trainer:
                 )
 
             if self.second_eval_during_training and epoch % self.second_eval_train_settings['each_nth_epoch'] == self.second_eval_train_settings['each_nth_epoch'] - 1:
+                # model second evaluation
                 self.evaluate(
                     self.second_eval_train_settings['images_root'],
                     self.second_eval_train_settings['inkmls_root'],
@@ -259,11 +321,17 @@ class Trainer:
                 )
 
         if save_model_dir is not None and os.path.exists(save_model_dir):
+            # save model final state dict
             save_model_final_name = self.model_name + '_final.pth'
             torch.save(self.model.state_dict(), os.path.join(save_model_dir, save_model_final_name))
             logging.info(f"Model saved as: {os.path.join(save_model_dir, save_model_final_name)}")
 
     def evaluate_training(self, data):
+        """
+        Model training-time batch evaluation.
+        :param data: model output
+        :return: stats dictionary
+        """
         stats = {}
 
         # evaluate nodes predictions = symbols
@@ -317,6 +385,22 @@ class Trainer:
 
     def evaluate(self, images_root, inkmls_root, batch_size=1, writer=False, epoch=None, print_stats=True,
                  print_item_level_stats=False, store_results_dir=None, results_author='', beam_search=True, beam_width=3, eval_id=""):
+        """
+        Evaluation of model.
+        :param images_root: images folder
+        :param inkmls_root: inkml files folder
+        :param batch_size: batch size (has to be 1 if beam search)
+        :param writer: summary writer object
+        :param epoch: training epoch if during training
+        :param print_stats: print statistics to STDOUT
+        :param print_item_level_stats: print item level statistict to STDOUT
+        :param store_results_dir: folder where recognition results shall be stored (LaTeX strings)
+        :param results_author: results author signature
+        :param beam_search: if True Beam search used to generate output graph, Greedy search otherwise
+        :param beam_width: beam width of beam search
+        :param eval_id: distinction of evaluation configuration for summary writer
+        :return:
+        """
         logging.info("\nEvaluation...")
         if beam_search:
             logging.info(f"Beam search with beam width: {beam_width}")
@@ -352,49 +436,14 @@ class Trainer:
                 data_batch = create_attn_gt(data_batch, self.end_node_token_id)
                 data_batch = data_batch.to(self.device)
 
-                x = data_batch.x
-
                 out = self.model(data_batch, beam_search, beam_width)
                 if self.device == torch.device('cuda'):
                     out = out.cpu()
 
-                # x_gt_node = out.attn_gt.argmax(dim=0)
-                # x_gt = out.tgt_y[x_gt_node]
-                # comp_pred = torch.argmax(out.x_conv_score, dim=1)
-
-                # plot_attn = False
-                # if plot_attn:
-                #     for i, y in enumerate(data_batch.tgt_y):
-                #         token = self.tokenizer.decode([y.item()], skip_special_tokens=False)
-                #         print(token)
-                #         y_attn_gt = data_batch.attn_gt[i]
-                #         y_attn_gcn1 = out.gcn1_alpha[i]
-                #         x_j = x.clone().squeeze(1)
-                #         x_a1 = x.clone().squeeze(1)
-                #         for i, x_i in enumerate(x_j):
-                #             x_j[i] = x_i * y_attn_gt[i]
-                #             x_j[i] /= torch.max(x_j[i])
-                #         for i, x_i in enumerate(x_a1):
-                #             x_a1[i] = x_i * y_attn_gcn1[i]
-                #             x_a1[i] /= torch.max(x_a1[i])
-                #         cols = 4
-                #         rows = ceil(y_attn_gt.shape[0] / cols)
-                #         row = 0
-                #         col = 0
-                #         _, axs = plt.subplots(rows, cols, figsize=(32, 32))
-                #         axs = axs.flatten()
-                #         for x_i, ax in zip(x_j, axs):
-                #             ax.imshow(x_i)
-                #         plt.show()
-                #         _, axs = plt.subplots(rows, cols, figsize=(32, 32))
-                #         axs = axs.flatten()
-                #         for x_i, ax in zip(x_a1, axs):
-                #             ax.imshow(x_i)
-                #         plt.show()
-
                 # split result batch to separate data elements
                 out_elems = split_databatch(out)
                 for out_elem in out_elems:
+                    # evaluate each batch item separately
                     item_stats = compute_single_item_stats(out_elem, self.tokenizer)
                     stats['edit_distances_seq'].append(item_stats['edit_distance_seq'])
                     stats['structure_match'] += 1 if item_stats['slt_diff']['structure_match'] else 0
@@ -410,7 +459,6 @@ class Trainer:
                         logging.info(f"\n  gt symbols:        {item_stats['gt_node_symbols']}")
                         logging.info(f"  pr symbols:        {item_stats['pred_node_symbols']}")
                         logging.info(f"  seq-sym-acc:       {seq_symbol_accuracy * 100:.5f}%")
-                        # logging.info(f"  pr symbols sp:     {item_stats['pred_node_symbols_with_special']}")
                         logging.info(f"  gt latex:          {item_stats['latex_gt']}")
                         logging.info(f"  pr latex:          {item_stats['latex_pred']}")
                         logging.info(f"  e-distance:        {item_stats['edit_distance_seq']}")

@@ -1,3 +1,12 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# Derived from Pytorch Geometrics GATConvV2 implementation https://pytorch-geometric.readthedocs.io/en/latest/modules/nn.html#torch_geometric.nn.conv.GATv2Conv
+# ###
+
 import torch
 import torch.nn.functional as F
 from torch.nn import Parameter
@@ -11,6 +20,16 @@ from torch_geometric.nn.inits import glorot, zeros
 class GATConvV2(MessagePassing):
     def __init__(self, in_size, out_size, edge_in_size, edge_out_size, heads=1,
                  negative_slope=0.2, dropout=0.0, concat=False):
+        """
+        :param in_size: in node features size
+        :param out_size: out node features size
+        :param edge_in_size: in edge features size
+        :param edge_out_size: out edge features size
+        :param heads: number of attention heads
+        :param negative_slope: leakyReLU negative slope
+        :param dropout: dropout probability
+        :param concat: if True concatenate heads outputs, else mean
+        """
         super().__init__(node_dim=0, aggr='add')
         self.in_size = in_size
         self.out_size = out_size
@@ -86,7 +105,7 @@ class GATConvV2(MessagePassing):
         edge_attr = self.lin_edge(edge_attr)
         edge_attr = edge_attr.view(-1, self.heads, self.out_size)
         x += edge_attr
-
+        # attend
         x = F.leaky_relu(x, self.negative_slope)
         alpha = (x * self.att).sum(dim=-1)
         alpha = softmax(alpha, index, ptr, size_i)

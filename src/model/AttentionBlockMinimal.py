@@ -1,14 +1,23 @@
-import torch
-import torch.nn.functional as F
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 from torch import nn
 from torch_geometric.nn import Linear
 
-from src.model.DecoderAttention import DecoderAttention
+from src.model.Attention import Attention
 
 
-class AttBlockMinimal(nn.Module):
+class AttentionBlockMinimal(nn.Module):
+    """
+    Decoder source graph attention block, which computes query only based on current nodes features.
+    """
     def __init__(self, device, f_size, out_size, init_size, dropout_p, is_first=False):
-        super(AttBlockMinimal, self).__init__()
+        super(AttentionBlockMinimal, self).__init__()
         self.device = device
         self.dropout_p = dropout_p
         self.negative_slope = 0.2
@@ -18,7 +27,7 @@ class AttBlockMinimal(nn.Module):
         self.lin_h = Linear(out_size, 128, bias=False, weight_initializer='glorot')
         self.lin_key = Linear(f_size, 128, bias=False, weight_initializer='glorot')
         self.lin_value = Linear(f_size, out_size, bias=False, weight_initializer='glorot')
-        self.attention = DecoderAttention(dim=2, dropout_p=dropout_p)
+        self.attention = Attention(dim=2, dropout_p=dropout_p)
 
     def reset_parameters(self):
         self.lin_h.reset_parameters()

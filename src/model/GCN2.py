@@ -1,7 +1,14 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 import torch
-from torch.nn import Parameter, ModuleList
+from torch.nn import ModuleList
 from torch_geometric.nn import MessagePassing, Linear
-from torch_geometric.nn.inits import zeros
 import torch.nn.functional as F
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes

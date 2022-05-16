@@ -1,414 +1,423 @@
 {
-  "device": {
-    "type": "Optional",
-    "datatype": "string",
-    "allowed_values": [
-      "gpu",
-      "cpu"
-    ],
-    "default": "gpu"
+  "head": {
+    "app": "Mathematical expression recognition tool.",
+    "note":  "Written as a part of masters thesis at VUT FIT Brno, 2022",
+    "author": "Vladislav Halva",
+    "login": "xhalva04",
+    "description": "This file describes the required format of the tools config file."
   },
-  "writer_path": {
-    "description": "Path to a folder, where tensorboard summary writer statistics will be stored",
-    "type": "Optional",
-    "datatype": "string",
-    "allowed_values": "path",
-    "default": null
-  },
-  "tmp_data_storage_folder": {
-    "description": "Path to a folder, where temporary dataset files will be stored. Speeds up training significantly.",
-    "type": "Optional",
-    "datatype": "string",
-    "allowed_values": "path",
-    "default": null
-  },
-  "vocabulary": {
-    "description": "Vocabulary configuration",
-    "type": "Required",
-    "datatype": "object",
-    "sub": {
-      "load_tokenizer": {
-        "description": "Whether to load already created tokenizer from file or train new one from inkml ground-truth files.",
-        "type": "Required",
-        "datatype": "bool",
-        "allowed_values": [
-          true,
-          false
-        ],
-        "default": false
-      },
-      "inkml_folder_for_vocab": {
-        "description": "Path to a folder containing inkml groud-truth to train tokenizer.",
-        "type": "Required if load_tokenizer==true",
-        "datatype": "string",
-        "allowed_values": "path",
-        "default": null
-      },
-      "vocab_filepath": {
-        "description": "Path to file, that will be created if new tokenizer is trained to store extracted symbols from formulas.",
-        "type": "Required if load_tokenizer==true",
-        "datatype": "string",
-        "allowed_values": "path",
-        "default": null
-      },
-      "tokenizer_filepath": {
-        "description": "Path to existing tokenizer file if loading existing, or path store new one if training.",
-        "type": "Required",
-        "datatype": "string",
-        "allowed_values": "path"
-      }
-    }
-  },
-  "model": {
-    "description": "Model configuration",
-    "type": "Required",
-    "datatype": "object",
-    "sub": {
-      "model_name": {
-        "description": "Name that will be assigned to trained/evaluated mode. Timestamp will be added automatically.",
-        "type": "Required",
-        "datatype": "string",
-        "allowed_values": "any",
-        "default": "MER"
-      },
-      "encoder_edge_fsize": {
-        "description": "Size of encoder edge features vector.",
-        "type": "Required",
-        "datatype": "number (int)",
-        "default": 128
-      },
-      "encoder_in_node_fsize": {
-        "description": "Size of encoder input node features (output size of VGG feature extractor).",
-        "type": "Required",
-        "datatype": "number (int)",
-        "default": 400
-      },
-      "encoder_hidden_node_fsize": {
-        "description": "Size of encoder hidden node features.",
-        "type": "Required",
-        "datatype": "number (int)",
-        "default": 300
-      },
-      "encoder_out_node_fsize": {
-        "description": "Size of encoder output node features.",
-        "type": "Required",
-        "datatype": "number (int)",
-        "default": 256
-      },
-      "decoder_in_fsize": {
-        "description": "Size of decoder input node features. Size of initial embedding of nodes.",
-        "type": "Required",
-        "datatype": "number (int)",
-        "default": 256
-      },
-      "decoder_hidden_fsize": {
-        "description": "Size of decoder hidden node features.",
-        "type": "Required",
-        "datatype": "number (int)",
-        "default": 256
-      },
-      "decoder_embed_fsize": {
-        "description": "Size embeddings = size of decode output node features.",
-        "type": "Required",
-        "datatype": "number (int)",
-        "default": 256
-      },
-      "decoder_attn_size": {
-        "description": "Size of decoder attention query and key vectors.",
-        "type": "Required",
-        "datatype": "number (int)",
-        "default": 300
-      },
-      "dropout_encoder_vgg": {
-        "description": "Dropout of encoder VGG fully connected layers.",
-        "type": "Required",
-        "datatype": "number (real)",
-        "allowed_values": "0.0 - 1.0",
-        "default": 0.0
-      },
-      "dropout_encoder_gat": {
-        "description": "Dropout of encoder GAT attention.",
-        "type": "Required",
-        "datatype": "number (real)",
-        "allowed_values": "0.0 - 1.0",
-        "default": 0.0
-      },
-      "dropout_decoder_init_embed": {
-        "description": "Dropout on decoder initial embeddings layer.",
-        "type": "Required",
-        "datatype": "number (real)",
-        "allowed_values": "0.0 - 1.0",
-        "default": 0.0
-      },
-      "dropout_decoder_attention": {
-        "description": "Dropout on decoder attention to source graph.",
-        "type": "Required",
-        "datatype": "number (real)",
-        "allowed_values": "0.0 - 1.0",
-        "default": 0.0
-      },
-      "load_state_dict": {
-        "description": "Whether to load pretrained model parameters. If so specifies path to stored state-dict file (.pth)",
-        "type": "Optional",
-        "datatype": "string",
-        "allowed_values": "path or null",
-        "default": null
-      }
-    }
-  },
-  "train": {
-    "description": "Training and evaluation during training configuration.",
-    "type": "Optional",
-    "datatype": "object",
-    "sub": {
-      "images_folder": {
-        "description": "Path to a folder with input images.",
-        "type": "Required",
-        "datatype": "string",
-        "allowed_values": "path"
-      },
-      "inkmls_folder": {
-        "description": "Path to a folder with ground-truth InkML files.",
-        "type": "Required",
-        "datatype": "string",
-        "allowed_values": "path"
-      },
-      "epochs": {
-        "description": "Number of training epochs.",
-        "type": "Required",
-        "datatype": "number (int)"
-      },
-      "batch_size": {
-        "description": "Number of items in training batch.",
-        "type": "Optional",
-        "datatype": "number (int)",
-        "default": 1
-      },
-      "save_model_folder": {
-        "description": "Path to a folder where model parameters will be stored.",
-        "type": "Optional",
-        "datatype": "string",
-        "allowed_values": "path",
-        "default": null
-      },
-      "save_checkpoint_each_nth_epoch": {
-        "description": "Period with which model parameters will be stored.",
-        "type": "Optional",
-        "datatype": "number (int)",
-        "default": 0
-      },
-      "loss": {
-        "description": "Loss function configuration.",
-        "type": "Optional",
-        "datatype": "object",
-        "sub": {
-          "loss_decoder_nodes": {
-            "description": "Loss coefficient for node symbol classification from decoder node output features.",
-            "type": "Required",
-            "datatype": "number (real)",
-            "default": 1.0
-          },
-          "loss_decoder_edges": {
-            "description": "Loss coefficient for edge symbol classification from decoder node output features.",
-            "type": "Required",
-            "datatype": "number (real)",
-            "default": 1.0
-          },
-          "loss_convnet": {
-            "description": "Loss coefficient for node symbol classification from VGG output features.",
-            "type": "Required",
-            "datatype": "number (real)",
-            "default": 0.0
-          },
-          "loss_encoder_nodes": {
-            "description": "Loss coefficient for node symbol classification from GAT output features.",
-            "type": "Required",
-            "datatype": "number (real)",
-            "default": 0.0
-          },
-          "loss_attention": {
-            "description": "Loss coefficient decoder sub-attention.",
-            "type": "Required",
-            "datatype": "number (real)",
-            "default": 0.0
-          },
-          "loss_decoder_end_nodes": {
-            "description": "Loss coefficient for addition end leaf nodes classification from decoder node output features.",
-            "type": "Required",
-            "datatype": "number (real)",
-            "default": 0.0
-          }
-        }
-      },
-      "evaluation_during_train_1": {
-        "description": "Configuration of evaluation of model between training epochs.",
-        "type": "Optional",
-        "datatype": "object",
-        "sub": {
-          "each_nth_epoch": {
-            "description": "Periodicity of evaluation.",
-            "type": "Required",
-            "datatype": "number (int)"
-          },
-          "images_folder": {
-            "description": "Path to folder with input images.",
-            "type": "Required",
-            "datatype": "string",
-            "allowed_values": "path"
-          },
-          "inkmls_folder": {
-            "description": "Path to ground-truth InkML files folder.",
-            "type": "Required",
-            "datatype": "string",
-            "allowed_values": "path"
-          },
-          "batch_size": {
-            "description": "Number of items in evaluation batch. If Beam search is selected, will be 1, regardless of this value.",
-            "type": "Optional",
-            "datatype": "number (int)",
-            "default": 1
-          },
-          "print_stats_stdout": {
-            "description": "Whether to print evaluation statistics to STDOUT.",
-            "type": "Optional",
-            "datatype": "bool",
-            "default": true
-          },
-          "print_item_level_stats_stdout": {
-            "description": "Whether to print item level statistics to STOOUT.",
-            "type": "Optional",
-            "datatype": "bool",
-            "default": false
-          },
-          "beam_search": {
-            "description": "Whether to use Beam search, instead of Greedy search while decoding output tree.",
-            "type": "Optional",
-            "datatype": "bool",
-            "default": true
-          },
-          "beam_width": {
-            "description": "Beam size of Beam search = number of simultaneously generated trees.",
-            "type": "Optional",
-            "datatype": "number (int)",
-            "default": 3
-          }
-        }
-      },
-      "evaluation_during_train_1": {
-        "description": "Configuration of second evaluation of model between training epochs. If two separate settings for evaluating shall be given.",
-        "type": "Optional",
-        "datatype": "object",
-        "sub": {
-          "each_nth_epoch": {
-            "description": "Periodicity of evaluation.",
-            "type": "Required",
-            "datatype": "number (int)"
-          },
-          "images_folder": {
-            "description": "Path to folder with input images.",
-            "type": "Required",
-            "datatype": "string",
-            "allowed_values": "path"
-          },
-          "inkmls_folder": {
-            "description": "Path to ground-truth InkML files folder.",
-            "type": "Required",
-            "datatype": "string",
-            "allowed_values": "path"
-          },
-          "batch_size": {
-            "description": "Number of items in evaluation batch. If Beam search is selected, will be 1, regardless of this value.",
-            "type": "Optional",
-            "datatype": "number (int)",
-            "default": 1
-          },
-          "print_stats_stdout": {
-            "description": "Whether to print evaluation statistics to STDOUT.",
-            "type": "Optional",
-            "datatype": "bool",
-            "default": true
-          },
-          "print_item_level_stats_stdout": {
-            "description": "Whether to print item level statistics to STOOUT.",
-            "type": "Optional",
-            "datatype": "bool",
-            "default": false
-          },
-          "beam_search": {
-            "description": "Whether to use Beam search, instead of Greedy search while decoding output tree.",
-            "type": "Optional",
-            "datatype": "bool",
-            "default": true
-          },
-          "beam_width": {
-            "description": "Beam size of Beam search = number of simultaneously generated trees.",
-            "type": "Optional",
-            "datatype": "number (int)",
-            "default": 3
-          }
+  "scheme": {
+    "device": {
+      "type": "Optional",
+      "datatype": "string",
+      "allowed_values": [
+        "gpu",
+        "cpu"
+      ],
+      "default": "gpu"
+    },
+    "writer_path": {
+      "description": "Path to a folder, where tensorboard summary writer statistics will be stored",
+      "type": "Optional",
+      "datatype": "string",
+      "allowed_values": "path",
+      "default": null
+    },
+    "tmp_data_storage_folder": {
+      "description": "Path to a folder, where temporary dataset files will be stored. Speeds up training significantly.",
+      "type": "Optional",
+      "datatype": "string",
+      "allowed_values": "path",
+      "default": null
+    },
+    "vocabulary": {
+      "description": "Vocabulary configuration",
+      "type": "Required",
+      "datatype": "object",
+      "sub": {
+        "load_tokenizer": {
+          "description": "Whether to load already created tokenizer from file or train new one from inkml ground-truth files.",
+          "type": "Required",
+          "datatype": "bool",
+          "allowed_values": [
+            true,
+            false
+          ],
+          "default": false
+        },
+        "inkml_folder_for_vocab": {
+          "description": "Path to a folder containing inkml groud-truth to train tokenizer.",
+          "type": "Required if load_tokenizer==true",
+          "datatype": "string",
+          "allowed_values": "path",
+          "default": null
+        },
+        "vocab_filepath": {
+          "description": "Path to file, that will be created if new tokenizer is trained to store extracted symbols from formulas.",
+          "type": "Required if load_tokenizer==true",
+          "datatype": "string",
+          "allowed_values": "path",
+          "default": null
+        },
+        "tokenizer_filepath": {
+          "description": "Path to existing tokenizer file if loading existing, or path store new one if training.",
+          "type": "Required",
+          "datatype": "string",
+          "allowed_values": "path"
         }
       }
-    }
-  },
-  "evaluate": {
-    "description": "Model evaluation settings.",
-    "type": "Optional",
-    "datatype": "object",
-    "sub": {
-      "images_folder": {
-        "description": "Path to folder with input images.",
-        "type": "Required",
-        "datatype": "string",
-        "allowed_values": "path"
-      },
-      "inkmls_folder": {
-        "description": "Path to ground-truth InkML files folder.",
-        "type": "Required",
-        "datatype": "string",
-        "allowed_values": "path"
-      },
-      "batch_size": {
-        "description": "Number of items in evaluation batch. If Beam search is selected, will be 1, regardless of this value.",
-        "type": "Optional",
-        "datatype": "number (int)",
-        "default": 1
-      },
-      "print_stats_stdout": {
-        "description": "Whether to print evaluation statistics to STDOUT.",
-        "type": "Optional",
-        "datatype": "bool",
-        "default": true
-      },
-      "print_item_level_stats_stdout": {
-        "description": "Whether to print item level statistics to STDOUT.",
-        "type": "Optional",
-        "datatype": "bool",
-        "default": false
-      },
-      "beam_search": {
-        "description": "Whether to use Beam search, instead of Greedy search while decoding output tree.",
-        "type": "Optional",
-        "datatype": "bool",
-        "default": true
-      },
-      "beam_width": {
-        "description": "Beam size of Beam search = number of simultaneously generated trees.",
-        "type": "Optional",
-        "datatype": "number (int)",
-        "default": 3
-      },
-      "store_results_folder": {
-        "description": "Path to a folder where recognized formulas shall be stored in LaTeX format. Compatible format with CROHMELib evaluation tools.",
-        "type": "Optional",
-        "datatype": "string",
-        "allowed_values": "path",
-        "default": null
-      },
-      "results_author": {
-        "description": "Results author's name. Will be uses as signature in results files - required by CROHMELib.",
-        "type": "Optional",
-        "datatype": "string",
-        "default": "mer_g2g_model"
+    },
+    "model": {
+      "description": "Model configuration",
+      "type": "Required",
+      "datatype": "object",
+      "sub": {
+        "model_name": {
+          "description": "Name that will be assigned to trained/evaluated mode. Timestamp will be added automatically.",
+          "type": "Required",
+          "datatype": "string",
+          "allowed_values": "any",
+          "default": "MER"
+        },
+        "encoder_edge_fsize": {
+          "description": "Size of encoder edge features vector.",
+          "type": "Required",
+          "datatype": "number (int)",
+          "default": 128
+        },
+        "encoder_in_node_fsize": {
+          "description": "Size of encoder input node features (output size of VGG feature extractor).",
+          "type": "Required",
+          "datatype": "number (int)",
+          "default": 400
+        },
+        "encoder_hidden_node_fsize": {
+          "description": "Size of encoder hidden node features.",
+          "type": "Required",
+          "datatype": "number (int)",
+          "default": 300
+        },
+        "encoder_out_node_fsize": {
+          "description": "Size of encoder output node features.",
+          "type": "Required",
+          "datatype": "number (int)",
+          "default": 256
+        },
+        "decoder_in_fsize": {
+          "description": "Size of decoder input node features. Size of initial embedding of nodes.",
+          "type": "Required",
+          "datatype": "number (int)",
+          "default": 256
+        },
+        "decoder_hidden_fsize": {
+          "description": "Size of decoder hidden node features.",
+          "type": "Required",
+          "datatype": "number (int)",
+          "default": 256
+        },
+        "decoder_embed_fsize": {
+          "description": "Size embeddings = size of decode output node features.",
+          "type": "Required",
+          "datatype": "number (int)",
+          "default": 256
+        },
+        "decoder_attn_size": {
+          "description": "Size of decoder attention query and key vectors.",
+          "type": "Required",
+          "datatype": "number (int)",
+          "default": 300
+        },
+        "dropout_encoder_vgg": {
+          "description": "Dropout of encoder VGG fully connected layers.",
+          "type": "Required",
+          "datatype": "number (real)",
+          "allowed_values": "0.0 - 1.0",
+          "default": 0.0
+        },
+        "dropout_encoder_gat": {
+          "description": "Dropout of encoder GAT attention.",
+          "type": "Required",
+          "datatype": "number (real)",
+          "allowed_values": "0.0 - 1.0",
+          "default": 0.0
+        },
+        "dropout_decoder_init_embed": {
+          "description": "Dropout on decoder initial embeddings layer.",
+          "type": "Required",
+          "datatype": "number (real)",
+          "allowed_values": "0.0 - 1.0",
+          "default": 0.0
+        },
+        "dropout_decoder_attention": {
+          "description": "Dropout on decoder attention to source graph.",
+          "type": "Required",
+          "datatype": "number (real)",
+          "allowed_values": "0.0 - 1.0",
+          "default": 0.0
+        },
+        "load_state_dict": {
+          "description": "Whether to load pretrained model parameters. If so specifies path to stored state-dict file (.pth)",
+          "type": "Optional",
+          "datatype": "string",
+          "allowed_values": "path or null",
+          "default": null
+        }
+      }
+    },
+    "train": {
+      "description": "Training and evaluation during training configuration.",
+      "type": "Optional",
+      "datatype": "object",
+      "sub": {
+        "images_folder": {
+          "description": "Path to a folder with input images.",
+          "type": "Required",
+          "datatype": "string",
+          "allowed_values": "path"
+        },
+        "inkmls_folder": {
+          "description": "Path to a folder with ground-truth InkML files.",
+          "type": "Required",
+          "datatype": "string",
+          "allowed_values": "path"
+        },
+        "epochs": {
+          "description": "Number of training epochs.",
+          "type": "Required",
+          "datatype": "number (int)"
+        },
+        "batch_size": {
+          "description": "Number of items in training batch.",
+          "type": "Optional",
+          "datatype": "number (int)",
+          "default": 1
+        },
+        "save_model_folder": {
+          "description": "Path to a folder where model parameters will be stored.",
+          "type": "Optional",
+          "datatype": "string",
+          "allowed_values": "path",
+          "default": null
+        },
+        "save_checkpoint_each_nth_epoch": {
+          "description": "Period with which model parameters will be stored.",
+          "type": "Optional",
+          "datatype": "number (int)",
+          "default": 0
+        },
+        "loss": {
+          "description": "Loss function configuration.",
+          "type": "Optional",
+          "datatype": "object",
+          "sub": {
+            "loss_decoder_nodes": {
+              "description": "Loss coefficient for node symbol classification from decoder node output features.",
+              "type": "Required",
+              "datatype": "number (real)",
+              "default": 1.0
+            },
+            "loss_decoder_edges": {
+              "description": "Loss coefficient for edge symbol classification from decoder node output features.",
+              "type": "Required",
+              "datatype": "number (real)",
+              "default": 1.0
+            },
+            "loss_convnet": {
+              "description": "Loss coefficient for node symbol classification from VGG output features.",
+              "type": "Required",
+              "datatype": "number (real)",
+              "default": 0.0
+            },
+            "loss_encoder_nodes": {
+              "description": "Loss coefficient for node symbol classification from GAT output features.",
+              "type": "Required",
+              "datatype": "number (real)",
+              "default": 0.0
+            },
+            "loss_attention": {
+              "description": "Loss coefficient decoder sub-attention.",
+              "type": "Required",
+              "datatype": "number (real)",
+              "default": 0.0
+            },
+            "loss_decoder_end_nodes": {
+              "description": "Loss coefficient for addition end leaf nodes classification from decoder node output features.",
+              "type": "Required",
+              "datatype": "number (real)",
+              "default": 0.0
+            }
+          }
+        },
+        "evaluation_during_train_1": {
+          "description": "Configuration of evaluation of model between training epochs.",
+          "type": "Optional",
+          "datatype": "object",
+          "sub": {
+            "each_nth_epoch": {
+              "description": "Periodicity of evaluation.",
+              "type": "Required",
+              "datatype": "number (int)"
+            },
+            "images_folder": {
+              "description": "Path to folder with input images.",
+              "type": "Required",
+              "datatype": "string",
+              "allowed_values": "path"
+            },
+            "inkmls_folder": {
+              "description": "Path to ground-truth InkML files folder.",
+              "type": "Required",
+              "datatype": "string",
+              "allowed_values": "path"
+            },
+            "batch_size": {
+              "description": "Number of items in evaluation batch. If Beam search is selected, will be 1, regardless of this value.",
+              "type": "Optional",
+              "datatype": "number (int)",
+              "default": 1
+            },
+            "print_stats_stdout": {
+              "description": "Whether to print evaluation statistics to STDOUT.",
+              "type": "Optional",
+              "datatype": "bool",
+              "default": true
+            },
+            "print_item_level_stats_stdout": {
+              "description": "Whether to print item level statistics to STOOUT.",
+              "type": "Optional",
+              "datatype": "bool",
+              "default": false
+            },
+            "beam_search": {
+              "description": "Whether to use Beam search, instead of Greedy search while decoding output tree.",
+              "type": "Optional",
+              "datatype": "bool",
+              "default": true
+            },
+            "beam_width": {
+              "description": "Beam size of Beam search = number of simultaneously generated trees.",
+              "type": "Optional",
+              "datatype": "number (int)",
+              "default": 3
+            }
+          }
+        },
+        "evaluation_during_train_1": {
+          "description": "Configuration of second evaluation of model between training epochs. If two separate settings for evaluating shall be given.",
+          "type": "Optional",
+          "datatype": "object",
+          "sub": {
+            "each_nth_epoch": {
+              "description": "Periodicity of evaluation.",
+              "type": "Required",
+              "datatype": "number (int)"
+            },
+            "images_folder": {
+              "description": "Path to folder with input images.",
+              "type": "Required",
+              "datatype": "string",
+              "allowed_values": "path"
+            },
+            "inkmls_folder": {
+              "description": "Path to ground-truth InkML files folder.",
+              "type": "Required",
+              "datatype": "string",
+              "allowed_values": "path"
+            },
+            "batch_size": {
+              "description": "Number of items in evaluation batch. If Beam search is selected, will be 1, regardless of this value.",
+              "type": "Optional",
+              "datatype": "number (int)",
+              "default": 1
+            },
+            "print_stats_stdout": {
+              "description": "Whether to print evaluation statistics to STDOUT.",
+              "type": "Optional",
+              "datatype": "bool",
+              "default": true
+            },
+            "print_item_level_stats_stdout": {
+              "description": "Whether to print item level statistics to STOOUT.",
+              "type": "Optional",
+              "datatype": "bool",
+              "default": false
+            },
+            "beam_search": {
+              "description": "Whether to use Beam search, instead of Greedy search while decoding output tree.",
+              "type": "Optional",
+              "datatype": "bool",
+              "default": true
+            },
+            "beam_width": {
+              "description": "Beam size of Beam search = number of simultaneously generated trees.",
+              "type": "Optional",
+              "datatype": "number (int)",
+              "default": 3
+            }
+          }
+        }
+      }
+    },
+    "evaluate": {
+      "description": "Model evaluation settings.",
+      "type": "Optional",
+      "datatype": "object",
+      "sub": {
+        "images_folder": {
+          "description": "Path to folder with input images.",
+          "type": "Required",
+          "datatype": "string",
+          "allowed_values": "path"
+        },
+        "inkmls_folder": {
+          "description": "Path to ground-truth InkML files folder.",
+          "type": "Required",
+          "datatype": "string",
+          "allowed_values": "path"
+        },
+        "batch_size": {
+          "description": "Number of items in evaluation batch. If Beam search is selected, will be 1, regardless of this value.",
+          "type": "Optional",
+          "datatype": "number (int)",
+          "default": 1
+        },
+        "print_stats_stdout": {
+          "description": "Whether to print evaluation statistics to STDOUT.",
+          "type": "Optional",
+          "datatype": "bool",
+          "default": true
+        },
+        "print_item_level_stats_stdout": {
+          "description": "Whether to print item level statistics to STDOUT.",
+          "type": "Optional",
+          "datatype": "bool",
+          "default": false
+        },
+        "beam_search": {
+          "description": "Whether to use Beam search, instead of Greedy search while decoding output tree.",
+          "type": "Optional",
+          "datatype": "bool",
+          "default": true
+        },
+        "beam_width": {
+          "description": "Beam size of Beam search = number of simultaneously generated trees.",
+          "type": "Optional",
+          "datatype": "number (int)",
+          "default": 3
+        },
+        "store_results_folder": {
+          "description": "Path to a folder where recognized formulas shall be stored in LaTeX format. Compatible format with CROHMELib evaluation tools.",
+          "type": "Optional",
+          "datatype": "string",
+          "allowed_values": "path",
+          "default": null
+        },
+        "results_author": {
+          "description": "Results author's name. Will be uses as signature in results files - required by CROHMELib.",
+          "type": "Optional",
+          "datatype": "string",
+          "default": "mer_g2g_model"
+        }
       }
     }
   }

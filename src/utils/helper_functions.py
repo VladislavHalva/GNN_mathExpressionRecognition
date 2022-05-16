@@ -1,13 +1,20 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 import glob
 import os
 import shutil
 
 
-def cpy_images_inkml_gt():
-    orig_images_root = 'assets/crohme/test/img'
-    orig_inkmls_root = 'assets/crohme/test/inkml'
-    tgt_images_root = 'assets/crohme/test_simple/img'
-    tgt_inkmls_root = 'assets/crohme/test_simple/inkml'
+def cpy_images_inkml_gt(orig_images_root, orig_inkmls_root, tgt_images_root, tgt_inkmls_root):
+    """
+    Copies InkML files associated with image files in tgt_images_root to tgt_inkmls_root from orig_inkmls_root folder.
+    """
     for subdir, _, files in os.walk(tgt_images_root):
         for file in files:
             image_file = file

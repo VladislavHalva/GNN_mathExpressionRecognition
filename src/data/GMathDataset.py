@@ -32,7 +32,7 @@ from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ItemLoadError import ItemLoadError
 from src.utils.utils import mathml_unicode_to_latex_label
-from src.utils.utilsLos import sort_components_by_distance, get_blocking_view_angles_range, \
+from src.utils.utilsLoS import sort_components_by_distance, get_blocking_view_angles_range, \
     is_component_visible, block_range_in_view_sections, edge_in_edges_undirected
 
 

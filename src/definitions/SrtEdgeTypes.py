@@ -1,7 +1,18 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 from enum import IntEnum
 
 
 class SrtEdgeTypes(IntEnum):
+    """
+    Possible extSLT edge relations. Only for parent-child nodes.
+    """
     UNDEFINED = 0
     RIGHT = 1
     ABOVE = 2
