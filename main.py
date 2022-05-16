@@ -1,75 +1,76 @@
+import argparse
+import json
 import logging
 
 from src.Trainer import Trainer
+from src.utils.Config import Config
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     logging.getLogger('matplotlib.font_manager').disabled = True
 
-    train = True
-    evaluate = True
-
-    trainer = Trainer(
-        model_name='MER_tSimple_eSimple',
-        tokenizer_path='assets/tokenizer.json',
-        vocab_path='assets/vocab.txt',
-        load_vocab=True,
-        inkml_folder_vocab='assets/crohme/train/inkml',
-        load_model=None,
-        writer='runs/',
-        temp_path=None
-    )
-
+    # parse arguments
+    parser = argparse.ArgumentParser(description='Mathematical expressions recognition tool.')
+    parser.add_argument('-c', '--config', help='Path to configuration file', required=True)
+    parser.add_argument('-p', '--print_config', help='Description for bar argument', required=False, action='store_true')
+    args = vars(parser.parse_args())
+    # build configuration
+    configurator = Config(args['config'])
+    config = configurator.get()
+    if config is None:
+        exit(1)
+    if args['print_config']:
+        configurator.print()
+    # set-up run
+    train = 'train' in config
+    evaluate = 'evaluate' in config
+    # init trainer
+    trainer = Trainer(config)
+    # set training and evaluation during training
     if train:
-        loss_config = {
-            'loss_convnet': 0.0,
-            'loss_encoder_nodes': 0.0,
-            'loss_attention': 0.0,
-            'loss_decoder_nodes': 1.0,
-            'loss_decoder_edges': 1.0,
-            'loss_decoder_end_nodes': 0.0
-        }
+        if 'eval1' in config['train']:
+            trainer.set_eval_during_training(
+                images_root=config['train']['eval1']['images_folder'],
+                inkmls_root=config['train']['eval1']['inkmls_folder'],
+                batch_size=config['train']['eval1']['batch_size'],
+                print_stats=config['train']['eval1']['print_stats_stdout'],
+                print_item_level_stats=config['train']['eval1']['print_item_level_stats_stdout'],
+                each_nth_epoch=config['train']['eval1']['each_nth_epoch'],
+                beam_search=config['train']['eval1']['beam_search'],
+                beam_width=config['train']['eval1']['beam_width']
+            )
+        if 'eval2' in config['train']:
+            trainer.set_second_eval_during_training(
+                images_root=config['train']['eval2']['images_folder'],
+                inkmls_root=config['train']['eval2']['inkmls_folder'],
+                batch_size=config['train']['eval2']['batch_size'],
+                print_stats=config['train']['eval2']['print_stats_stdout'],
+                print_item_level_stats=config['train']['eval2']['print_item_level_stats_stdout'],
+                each_nth_epoch=config['train']['eval2']['each_nth_epoch'],
+                beam_search=config['train']['eval2']['beam_search'],
+                beam_width=config['train']['eval2']['beam_width']
+            )
+            trainer.train(
+                images_root=config['train']['images_folder'],
+                inkmls_root=config['train']['inkmls_folder'],
+                epochs=config['train']['epochs'],
+                batch_size=config['train']['batch_size'],
+                loss_config=config['train']['loss'],
+                save_model_dir=config['train']['save_model_folder'],
+                save_checkpoint_each_nth_epoch=config['train']['save_checkpoint_each_nth_epoch']
+            )
 
-        trainer.set_eval_during_training(
-            images_root='assets/crohme/simple/img/',
-            inkmls_root='assets/crohme/simple/inkml/',
-            batch_size=1,
-            print_stats=True,
-            print_item_level_stats=False,
-            each_nth_epoch=5,
-            beam_search=True,
-            beam_width=3
-        )
-        # trainer.set_second_eval_during_training(
-        #     images_root='assets/crohme/simple/img/',
-        #     inkmls_root='assets/crohme/simple/inkml/',
-        #     batch_size=1,
-        #     print_stats=True,
-        #     print_item_level_stats=False,
-        #     each_nth_epoch=3,
-        #     beam_search=False,
-        #     beam_width=3
-        # )
-        trainer.train(
-            images_root='assets/crohme/simple/img/',
-            inkmls_root='assets/crohme/simple/inkml/',
-            epochs=100,
-            batch_size=6,
-            loss_config=loss_config,
-            save_model_dir='checkpoints/',
-            save_checkpoint_each_nth_epoch=0
-        )
-
+    # set evaluation
     if evaluate:
         trainer.evaluate(
-            images_root='assets/crohme/simple/img/',
-            inkmls_root='assets/crohme/simple/inkml/',
-            batch_size=1,
-            print_stats=True,
-            print_item_level_stats=True,
-            store_results_dir=None,
-            results_author='Vladislav Halva',
-            beam_search=True,
-            beam_width=3
+            images_root=config['evaluate']['images_folder'],
+            inkmls_root=config['evaluate']['inkmls_folder'],
+            batch_size=config['evaluate']['batch_size'],
+            print_stats=config['evaluate']['print_stats_stdout'],
+            print_item_level_stats=config['evaluate']['print_item_level_stats_stdout'],
+            store_results_dir=config['evaluate']['store_results_folder'],
+            results_author=config['evaluate']['results_author'],
+            beam_search=config['evaluate']['beam_search'],
+            beam_width=config['evaluate']['beam_width'],
         )
 

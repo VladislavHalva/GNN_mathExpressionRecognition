@@ -1,0 +1,76 @@
+{
+  "device": "gpu",
+  "writer_path": "runs/",
+  "tmp_data_storage_folder": null,
+  "vocabulary": {
+    "load_tokenizer": true,
+    "inkml_folder_for_vocab": "assets/crohme/train/inkml",
+    "tokenizer_filepath": "assets/tokenizer.json",
+    "vocab_filepath": "assets/vocab.txt"
+  },
+  "model": {
+    "model_name": "MER",
+    "encoder_edge_fsize": 64,
+    "encoder_in_node_fsize": 300,
+    "encoder_hidden_node_fsize": 256,
+    "encoder_out_node_fsize": 256,
+
+    "decoder_in_fsize": 256,
+    "decoder_hidden_fsize": 256,
+    "decoder_embed_fsize": 256,
+    "decoder_attn_size": 128,
+
+    "dropout_encoder_vgg": 0.0,
+    "dropout_encoder_gat": 0.0,
+    "dropout_decoder_init_embed": 0.0,
+    "dropout_decoder_attention": 0.0,
+    "load_state_dict": null
+  },
+  "train": {
+    "images_folder": "assets/crohme/simple/img/",
+    "inkmls_folder": "assets/crohme/simple/inkml/",
+    "epochs": 50,
+    "batch_size": 6,
+    "save_model_folder": "checkpoints/",
+    "save_checkpoint_each_nth_epoch": 0,
+    "loss":{
+        "loss_convnet": 0.0,
+        "loss_encoder_nodes": 0.0,
+        "loss_attention": 0.0,
+        "loss_decoder_nodes": 1.0,
+        "loss_decoder_edges": 1.0,
+        "loss_decoder_end_nodes": 0.0
+    },
+    "evaluation_during_train_1": {
+      "each_nth_epoch": 5,
+      "images_folder": "assets/crohme/simple/img/",
+      "inkmls_folder": "assets/crohme/simple/inkml/",
+      "batch_size": 1,
+      "print_stats_stdout": true,
+      "print_item_level_stats_stdout": false,
+      "beam_search": true,
+      "beam_width": 3
+    },
+    "evaluation_during_train_2": {
+      "each_nth_epoch": 5,
+      "images_folder": "assets/crohme/simple/img/",
+      "inkmls_folder": "assets/crohme/simple/inkml/",
+      "batch_size": 5,
+      "print_stats_stdout": true,
+      "print_item_level_stats_stdout": false,
+      "beam_search": false,
+      "beam_width": 3
+    }
+  },
+  "evaluate": {
+    "images_folder": "assets/crohme/simple/img/",
+    "inkmls_folder": "assets/crohme/simple/inkml/",
+    "batch_size": 1,
+    "print_stats_stdout": true,
+    "print_item_level_stats_stdout": false,
+    "beam_search": true,
+    "beam_width": 3,
+    "store_results_folder": null,
+    "results_author": ""
+  }
+}

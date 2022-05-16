@@ -19,58 +19,59 @@ from src.utils.utils import create_attn_gt, split_databatch, compute_single_item
 
 
 class Trainer:
-    def __init__(
-        self,
-        model_name,
-        tokenizer_path,
-        vocab_path=None,
-        load_vocab=False,
-        inkml_folder_vocab=None,
-        load_model=None,
-        writer=None,
-        temp_path=None
-    ):
+    def __init__(self, config):
+        self.config = config
         # define metaparameters
         self.components_shape = (32, 32)
         self.edge_features = 10
-        self.edge_h_size = 64
-        self.enc_in_size = 256
-        self.enc_h_size = 256
-        self.enc_out_size = 128
-        self.dec_in_size = 256
-        self.dec_h_size = 300
-        self.dec_att_size = 128
-        self.emb_size = 100
+        self.edge_h_size = config['model']['encoder_edge_fsize']
+        self.enc_in_size = config['model']['encoder_in_node_fsize']
+        self.enc_h_size = config['model']['encoder_hidden_node_fsize']
+        self.enc_out_size = config['model']['encoder_out_node_fsize']
+        self.dec_in_size = config['model']['decoder_in_fsize']
+        self.dec_h_size = config['model']['decoder_hidden_fsize']
+        self.emb_size = config['model']['decoder_embed_fsize']
+        self.dec_att_size = config['model']['decoder_attn_size']
 
-        self.enc_vgg_dropout_p = 0.0
-        self.enc_gat_dropout_p = 0.0
-        self.dec_emb_dropout_p = 0.0
-        self.dec_att_dropout_p = 0.0
+        self.enc_vgg_dropout_p = config['model']['dropout_encoder_vgg']
+        self.enc_gat_dropout_p = config['model']['dropout_encoder_gat']
+        self.dec_emb_dropout_p = config['model']['dropout_decoder_init_embed']
+        self.dec_att_dropout_p = config['model']['dropout_decoder_attention']
 
         self.substitute_terms = False
 
         # use GPU if available
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if config['device'] == 'cuda':
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        else:
+            self.device = torch.device("cpu")
         logging.info(f"Device: {self.device}")
 
         # load or create tokenizer
-        if load_vocab and os.path.exists(tokenizer_path):
-            self.tokenizer = LatexVocab.load_tokenizer(tokenizer_path)
-            logging.info(f"Tokenizer loaded from: {tokenizer_path}")
-        elif inkml_folder_vocab is not None and vocab_path is not None and os.path.exists(vocab_path) and os.path.exists(inkml_folder_vocab):
-            LatexVocab.generate_formulas_file_from_inkmls(inkml_folder_vocab, vocab_path, substitute_terms=self.substitute_terms, latex_gt=False, mathml_gt=True)
-            self.tokenizer = LatexVocab.create_tokenizer(vocab_path, min_freq=2)
-            LatexVocab.save_tokenizer(self.tokenizer, tokenizer_path)
-            logging.info(f"Tokenizer created as: {tokenizer_path}")
+        if config['vocabulary']['load_tokenizer'] and os.path.exists(config['vocabulary']['tokenizer_filepath']):
+            self.tokenizer = LatexVocab.load_tokenizer(config['vocabulary']['tokenizer_filepath'])
+            logging.info(f"Tokenizer loaded from: {config['vocabulary']['tokenizer_filepath']}")
+        elif config['vocabulary']['inkml_folder_for_vocab'] is not None and \
+                config['vocabulary']['vocab_filepath'] is not None and \
+                os.path.exists(config['vocabulary']['vocab_filepath']) and \
+                os.path.exists(config['vocabulary']['inkml_folder_for_vocab']):
+            LatexVocab.generate_formulas_file_from_inkmls(
+                config['vocabulary']['inkml_folder_for_vocab'],
+                config['vocabulary']['vocab_filepath'],
+                substitute_terms=self.substitute_terms,
+                latex_gt=False, mathml_gt=True)
+            self.tokenizer = LatexVocab.create_tokenizer(config['vocabulary']['vocab_filepath'], min_freq=2)
+            LatexVocab.save_tokenizer(self.tokenizer, config['vocabulary']['tokenizer_filepath'])
+            logging.info(f"Tokenizer created as: {config['vocabulary']['tokenizer_filepath']}")
         else:
-            raise ModelParamsError('vocabulary could not be initialized')
+            raise ModelParamsError('Vocabulary could not be initialized')
         self.vocab_size = self.tokenizer.get_vocab_size()
         self.end_node_token_id = self.tokenizer.encode("[EOS]", add_special_tokens=False).ids[0]
         logging.info(f"Vocab size: {self.vocab_size}")
 
         # init model
         now = datetime.now()
-        self.model_name = model_name + '_' + now.strftime("%y-%m-%d_%H-%M-%S")
+        self.model_name = config['model']['model_name'] + '_' + now.strftime("%y-%m-%d_%H-%M-%S")
 
         self.model = Model(
             self.device, self.edge_features, self.edge_h_size,
@@ -79,21 +80,25 @@ class Trainer:
             self.vocab_size, self.end_node_token_id, self.tokenizer,
             self.enc_vgg_dropout_p, self.enc_gat_dropout_p, self.dec_emb_dropout_p, self.dec_att_dropout_p)
         self.model.double()
-        if load_model is not None and os.path.exists(load_model):
-            self.model.load_state_dict(torch.load(load_model, map_location=self.device))
-            logging.info(f"Model loaded: {load_model}")
+        if config['model']['load'] and os.path.exists(config['model']['load_state_dict']):
+            self.model.load_state_dict(torch.load(config['model']['load_state_dict'], map_location=self.device))
+            logging.info(f"Model loaded: {config['model']['load_state_dict']}")
         self.model.to(self.device)
 
         # init summary writer
-        if writer is not None and os.path.exists(writer):
-            self.writer = SummaryWriter(os.path.join(writer, self.model_name))
+        if config['writer_path'] is not None:
+            if os.path.exists(config['writer_path']):
+                self.writer = SummaryWriter(os.path.join(config['writer_path'], self.model_name))
+            else:
+                logging.info("Writer could not be initialized, directory does not exist")
+                self.writer = None
         else:
             self.writer = False
 
-        if temp_path is not None and os.path.exists(temp_path):
-            self.temp_path = temp_path
+        if config['tmp_data_storage_folder'] is not None and os.path.exists(config['tmp_data_storage_folder']):
+            self.temp_path = config['tmp_data_storage_folder']
         else:
-            self.temp_path = temp_path
+            self.temp_path = None
 
         self.eval_during_training = False
         self.eval_train_settings = None
