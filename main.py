@@ -1,8 +1,17 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 import argparse
-import json
 import logging
 
 from src.Trainer import Trainer
+from src.data.GMathDataset import CrohmeDataset
+from src.data.LatexVocab import LatexVocab
 from src.utils.Config import Config
 
 if __name__ == '__main__':

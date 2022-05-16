@@ -169,3 +169,8 @@ def block_range_in_view_sections(view_sections, blocking_view):
     return global_blocked_view_sections
 
 
+def edge_in_edges_undirected(edges, edge_start, edge_end):
+    for edge in edges:
+        if edge[0] == edge_start and edge[1] == edge_end or edge[0] == edge_end and edge[1] == edge_start:
+            return True
+    return False

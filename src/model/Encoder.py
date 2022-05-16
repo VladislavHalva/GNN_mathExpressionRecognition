@@ -1,3 +1,4 @@
+import torchvision
 from torch import nn
 from torch_geometric.utils import remove_self_loops
 
@@ -11,8 +12,6 @@ class Encoder(nn.Module):
         super(Encoder, self).__init__()
 
         self.vgg = VGG11(1, in_size, dropout_p=vgg_dropout_p)
-        # self.vgg = torchvision.models.vgg11(pretrained=True)
-        # self.vgg.classifier[6] = nn.Linear(4096, in_size)
 
         self.gat1 = GATConvV2(in_size, h_size, edge_features, edge_h_size, dropout=gat_dropout_p, heads=3)
         self.gat2 = GATConvV2(h_size, h_size, edge_h_size, edge_h_size, dropout=gat_dropout_p, heads=3)
@@ -22,7 +21,6 @@ class Encoder(nn.Module):
 
     def forward(self, x, edge_index, edge_attr):
         # extract component level visual features
-        # x = x.repeat(1, 3, 1, 1)
         x = self.vgg(x)
         x_conv_score = self.lin_x_conv_out(x)
 

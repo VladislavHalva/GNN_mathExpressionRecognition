@@ -1,3 +1,11 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 import logging
 import os
 import xml.etree.ElementTree as ET
@@ -15,8 +23,19 @@ from src.utils.utils import mathml_unicode_to_latex_label
 
 
 class LatexVocab:
+    """
+    Represents LaTeX vocabulary and manages tokenizer.
+    """
     @staticmethod
     def generate_formulas_file_from_inkmls(inkmls_root, tgt_file, substitute_terms=False, latex_gt=True, mathml_gt=False):
+        """
+        Parses given InkML files and files of all symbols in formulas.
+        :param inkmls_root: InkML filepath
+        :param tgt_file: filepath, where the symbols shall be stored
+        :param substitute_terms: whether to substitute identifiers, numbers and text element with special tokens (only for MathML parsing)
+        :param latex_gt: whether to parse LaTeX groundtruth
+        :param mathml_gt: whether to parse MathML groundtruth
+        """
         if not os.path.exists(inkmls_root):
             raise FileNotFoundError('Inkmls directory not found')
 
@@ -46,7 +65,6 @@ class LatexVocab:
                             pass
                     if mathml_gt:
                         # parse formulas from mathml groundtruth
-
                         # get mathml annotation section and determine type
                         annotation_mathml_content = root.find(
                             doc_namespace + 'annotationXML[@type="truth"][@encoding="Content-MathML"]')
@@ -60,7 +78,6 @@ class LatexVocab:
                             annotation_mathml = annotation_mathml_presentation
                         else:
                             continue
-
                         # find mathml definition root
                         if annotation_type == MathMLAnnotationType.CONTENT:
                             math_root = annotation_mathml.find(mathml_namespace + 'math')
@@ -68,7 +85,6 @@ class LatexVocab:
                             math_root = annotation_mathml.find(doc_namespace + 'math')
                         if not math_root:
                             continue
-
                         try:
                             # append curly brackets - not in mathml, but definitely should be in tokens
                             formulas.append("{ }")
@@ -87,19 +103,25 @@ class LatexVocab:
         # get unique formulas
         formulas = set(formulas)
         logging.info(str(len(formulas)) + ' different formulas found')
-
         # split formulas to symbols and get unique symbols
         symbols = []
         for formula in formulas:
             symbols.extend(formula.split(' '))
-
+        # write result to file
         with open(tgt_file, 'w') as fd:
             fd.write(' '.join(symbols))
-
         logging.info('Formulas written to ' + tgt_file)
 
     @staticmethod
     def mathml_symbols_dfs(xml_ns, mathml_ns, root, substitute_terms=False):
+        """
+        DFS traversal of MathML notation to retrieve symbols.
+        :param xml_ns: xml namespace
+        :param mathml_ns: mathml namespace
+        :param root: current subtree root element
+        :param substitute_terms: whether to substitute identifiers, numbers and text elements
+        :return: list of symbols
+        """
         if root.tag in [mathml_ns + 'mi', mathml_ns + 'mn', mathml_ns + 'mo', mathml_ns + 'mtext',
                         mathml_ns + 'mspace', mathml_ns + 'ms']:
             if substitute_terms:
@@ -142,6 +164,11 @@ class LatexVocab:
 
     @staticmethod
     def split_to_tokens(latex_formula):
+        """
+        Splits LaTeX formula to tokens (on spaces) using regular expressions.
+        :param: latex_formula: input LaTeX formula (string)
+        :return: LaTeX formula with separated tokens (string)
+        """
         # remove whitespace at the beginning and the end
         latex_formula = latex_formula.strip()
         # classic commands
@@ -162,7 +189,12 @@ class LatexVocab:
 
     @staticmethod
     def create_tokenizer(formulas_file, min_freq=2):
-
+        """
+        Trains tokenizer on file of extracted symbols. Append special tokens
+        :param formulas_file: file containing symbols separated with spaces
+        :param min_freq: minimal frequence of symbol occurrence to be added to vocabulary
+        :return: tokenizer object
+        """
         tokenizer = Tokenizer(WordLevel(unk_token="[UNK]"))
         tokenizer.pre_tokenizer = Split(pattern=" ", behavior='isolated')
         tokenizer.post_processor = TemplateProcessing(
@@ -170,42 +202,30 @@ class LatexVocab:
             pair="[BOS] $A [PAD] $B:1 [EOS]:1",
             special_tokens=[("[PAD]", 1), ("[BOS]", 2), ("[EOS]", 3)],
         )
-
         trainer = WordLevelTrainer(
             special_tokens=["[UNK]", "[PAD]", "[BOS]", "[EOS]"],
             min_frequency=min_freq,
             show_progress=True
         )
-
         tokenizer.train(trainer=trainer, files=[formulas_file])
         return tokenizer
 
     @staticmethod
     def save_tokenizer(tokenizer, tgt_file):
+        """
+        Saves tokenizer to a file.
+        :param tokenizer: tokenizer object
+        :param tgt_file: target filepath
+        """
         tokenizer.save(tgt_file)
 
     @staticmethod
     def load_tokenizer(tokenizer_file):
+        """
+        Loads trained tokenizer from a file.
+        :param tokenizer_file: tokenizer filepath
+        :return: loaded tokenizer
+        """
         if not os.path.exists(tokenizer_file):
             raise FileNotFoundError('Tokenizer file not found')
-
         return Tokenizer.from_file(tokenizer_file)
-
-    # @staticmethod
-    # def create_tokenizer(formulas_file, min_freq=1):
-    #     words = []
-    #     with open(formulas_file, 'r') as file:
-    #         for line in file:
-    #             line_words = line.split(' ')
-    #             line_words = [word.strip() for word in line_words]
-    #             words.extend(line_words)
-    #     words = list(set(words))
-    #     words.extend(['[PAD]', '[EOS]', '[UNK]'])
-    #     return LTokenizer(words)
-    #
-    # @staticmethod
-    # def load_tokenizer(tokenizer_file):
-    #     if not os.path.exists(tokenizer_file):
-    #         raise FileNotFoundError('Tokenizer file not found')
-    #
-    #     return LTokenizer.from_file(tokenizer_file)

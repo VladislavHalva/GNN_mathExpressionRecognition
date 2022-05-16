@@ -1,3 +1,11 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 import os
 import pickle
 import random
@@ -21,15 +29,17 @@ from src.data.GMathData import GMathData
 from src.data.LatexVocab import LatexVocab
 from src.definitions.MathMLAnnotationType import MathMLAnnotationType
 from src.definitions.SltEdgeTypes import SltEdgeTypes
-from src.definitions.SrtEdgeTypeExt import SrtEdgeTypesExt
 from src.definitions.SrtEdgeTypes import SrtEdgeTypes
 from src.definitions.exceptions.ItemLoadError import ItemLoadError
 from src.utils.utils import mathml_unicode_to_latex_label
 from src.utils.utilsLos import sort_components_by_distance, get_blocking_view_angles_range, \
-    is_component_visible, block_range_in_view_sections
+    is_component_visible, block_range_in_view_sections, edge_in_edges_undirected
 
 
 class CrohmeDataset(Dataset):
+    """
+    Dataset representation used by DataLoader to fetch data.
+    """
     def __init__(self,
                  images_root,
                  inkmls_root,
@@ -37,8 +47,17 @@ class CrohmeDataset(Dataset):
                  components_shape=(32, 32),
                  tmp_path=None,
                  substitute_terms=False,
-                 img_transform=False,
                  transform=None):
+        """
+        :param images_root: path to folder with source images
+        :param inkmls_root: path to folder with groudtruth InkML files
+        :param tokenizer: huggingface tokenizer object to tokenize symbols
+        :param components_shape: desired shape of components images, default (32, 32)
+        :param tmp_path: path to folder where temporary data file will be stored
+            used to create each data-element only once during training
+        :param substitute_terms: whether to substitute identifiers, numbers and text elements in dataset with special tokens
+        :param transform: data transformation
+        """
         self.images_root = images_root
         self.inkmls_root = inkmls_root
         self.tokenizer = tokenizer
@@ -47,7 +66,6 @@ class CrohmeDataset(Dataset):
         self.items = []
         self.tmp_path = tmp_path
         self.substitute_terms = substitute_terms
-        self.img_transform = img_transform
         self.transform = transform
 
         if not os.path.exists(self.images_root):
@@ -57,6 +75,7 @@ class CrohmeDataset(Dataset):
 
         logging.info('Loading data...')
 
+        # create datalist - check whether both image and inkml files exists
         for subdir, _, files in os.walk(images_root):
             for file in files:
                 image_file = file
@@ -76,29 +95,32 @@ class CrohmeDataset(Dataset):
         return len(self.items)
 
     def __getitem__(self, idx):
+        """
+        Returns dataset element specified by idx
+        :param idx: item id
+        :return: data object
+        """
         try:
             item = self.items[idx]
             image_path, inkml_path, file_name = item
 
+            # fetch element data from tmp file if exist
             if self.tmp_path:
                 tmp_file_path = os.path.join(self.tmp_path, file_name + '.tmp')
-
             if self.tmp_path and os.path.isfile(tmp_file_path):
                 # load temp if exists
                 with open(tmp_file_path, 'rb') as tmp_file:
                     data = pickle.load(tmp_file)
-
                     if self.transform:
                         data = self.transform(data)
                     return data
             else:
-                # build data if temp not exists
+                # build data if tmp does not exists
                 # get source graph - LoS
                 x, edge_index, edge_attr, los_components = self.get_src_item(image_path)
                 # get tgt graph - SLT, and LaTeX ground-truth
                 gt, gt_ml, tgt_y, tgt_edge_index, tgt_edge_type, tgt_edge_relation, comp_symbols = self.get_tgt_item(image_path, inkml_path, los_components)
-                # edge_type = self.build_src_edge_type(comp_symbols, edge_index, tgt_edge_index, tgt_edge_relation)
-                # build dataset item
+                # build dataset item object
                 data = GMathData(
                     x=x, edge_index=edge_index, edge_attr=edge_attr,
                     gt=gt, gt_ml=gt_ml, tgt_y=tgt_y, tgt_edge_index=tgt_edge_index,
@@ -106,86 +128,44 @@ class CrohmeDataset(Dataset):
                     comp_symbols=comp_symbols
                 )
                 data.filename = file_name
-                # data.edge_type = edge_type
 
+                # save tmp data representation for next iterations
                 if self.tmp_path:
-                    # save for next epoch/train run
                     if not os.path.isfile(tmp_file_path):
                         with open(tmp_file_path, 'wb') as tmp_file:
                             pickle.dump(data, tmp_file)
 
+                # data transfomation if defined
                 if self.transform:
                     data = self.transform(data)
-
                 return data
         except Exception as e:
+            # if error while creating item occurred - fetch another random element instead
             logging.debug(e)
             return self.__getitem__(random.randrange(0, self.__len__()))
 
-    def build_src_edge_type(self, comp_symbols, edge_index, tgt_edge_index, tgt_edge_relation):
-        edge_index = edge_index.t()
-        tgt_edge_index = tgt_edge_index.t()
-        src_to_tgt_edge_idx = [None] * edge_index.shape[0]
-        for src_edge_i, src_edge in enumerate(edge_index):
-            src_from_tgt = comp_symbols[src_edge[0]]
-            src_to_tgt = comp_symbols[src_edge[1]]
-            for tgt_edge_i, tgt_edge in enumerate(tgt_edge_index):
-                if tgt_edge[0] == src_from_tgt and tgt_edge[1] == src_to_tgt:
-                    # same direction edge
-                    src_to_tgt_edge_idx[src_edge_i] = tgt_edge_i
-                elif tgt_edge[1] == src_from_tgt and tgt_edge[0] == src_to_tgt:
-                    # reverse edge
-                    src_to_tgt_edge_idx[src_edge_i] = tgt_edge_i + tgt_edge_index.shape[0]
-        edge_type = torch.zeros((edge_index.shape[0]), dtype=torch.long)
-        for src_edge_i, srt_to_tgt in enumerate(src_to_tgt_edge_idx):
-            if srt_to_tgt is not None:
-                if srt_to_tgt < tgt_edge_relation.shape[0]:
-                    # same direction edge
-                    relation = SrtEdgeTypesExt.from_srt_edge_type(tgt_edge_relation[srt_to_tgt].item())
-                    edge_type[src_edge_i] = relation
-                else:
-                    # reverse edge
-                    srt_to_tgt_real = srt_to_tgt - tgt_edge_relation.shape[0]
-                    relation = SrtEdgeTypesExt.get_reverse(SrtEdgeTypesExt.from_srt_edge_type(tgt_edge_relation[srt_to_tgt_real].item()))
-                    edge_type[src_edge_i] = relation
-        return edge_type
-
     def get_src_item(self, image_path):
+        """
+        Creates source LoS graph from image
+        :param image_path: source image filepath
+        :return:
+            x, edge_index, edge_attr,
+            components: list of component object including identifiers and bounding boxes
+        """
         # extract components and build LoS graph
         components, component_images, components_mask = self.extract_components_from_image(image_path)
         edges = self.get_line_of_sight_edges(components)
         edge_features = self.compute_los_edge_features(edges, components, components_mask)
         # self.draw_los(image_path, components, edges)
 
-        # plot components
-        # cols = 4
-        # rows = ceil(len(components) / cols)
-        # row = 0
-        # col = 0
-        # _, axs = plt.subplots(rows, cols, figsize=(32, 32))
-        # axs = axs.flatten()
-        # for component, ax in zip(component_images, axs):
-        #     image = component
-        #     ax.imshow(image)
-        # plt.show()
-
-        # BUILD PyG GRAPH DATA ELEMENT
-        # input components images
+        # build nodes
         component_images = np.array(component_images)
-
-        # image rotation code - backup
-        # if self.img_transform:
-        #     for i, component_image in enumerate(component_images):
-        #         rotation_angle = float(random.randint(-30, 30))
-        #         component_image = imutils.rotate(component_image, angle=rotation_angle)
-        #         component_images[i] = component_image
-
         x = torch.tensor(
             component_images,
             dtype=torch.double)
         x = torch.unsqueeze(x, 1)
 
-        # input edges - and make undirected - first in one direction, than backward
+        # build edges - and make undirected - first in one direction, than backward
         edge_index = torch.tensor(
             [edge_idx['components'] for edge_idx in edges] +
             [[edge_idx['components'][1], edge_idx['components'][0]] for edge_idx in edges],
@@ -299,16 +279,26 @@ class CrohmeDataset(Dataset):
                 # if the components is fully visible from centroid, add visibility edge
                 is_visible = is_component_visible(unblocked_view, blocking_view)
                 if is_visible:
-                    edges.append({
-                        'components': [i, j],
-                        'start': c_i_center,
-                        'end': c_j_center
-                    })
+                    if not edge_in_edges_undirected([edge['components'] for edge in edges], i, j):
+                        # append edge if component visible and edge does not exist yet
+                        edges.append({
+                            'components': [i, j],
+                            'start': c_i_center,
+                            'end': c_j_center
+                        })
                 # update free view angle by shadowing the currently processed component angle range
                 unblocked_view = block_range_in_view_sections(unblocked_view, blocking_view)
+
         return edges
 
     def compute_los_edge_features(self, edges, components, components_mask):
+        """
+        Calculates geometric features of edges
+        :param edges: list of edges
+        :param components: list of components
+        :param components_mask: image, where each components area has value of its index in components list
+        :return: list of lists of edge features per each edge
+        """
         edge_features = []
         for edge in edges:
             # get corresponding components
@@ -376,6 +366,11 @@ class CrohmeDataset(Dataset):
         return torch.cat([edge_attr, bw_edge_attr], dim=0)
 
     def line_and_rect_intersect(self, line_bounds, rect_corners):
+        """
+        :param line_bounds: start and endpoint of and edge - list
+        :param rect_corners: list of rectangles corner points
+        :return: True if intersect, False otherwise
+        """
         line_start = line_bounds[0]
         line_end = line_bounds[1]
         rect = Polygon([
@@ -389,6 +384,13 @@ class CrohmeDataset(Dataset):
         return line.intersects(rect)
 
     def draw_los(self, imagepath, components, edges):
+        """
+            Plots Line of Sight graph
+        :param imagepath: source image path
+        :param components: components list
+        :param edges: edges list
+        """
+        # draw components bounding boxes
         img = cv.imread(imagepath)
         for i in range(len(components)):
             topleft = components[i]['bbox'][0]
@@ -396,18 +398,21 @@ class CrohmeDataset(Dataset):
             (cX, cY) = components[i]['centroid']
             cv.rectangle(img, topleft, bottomright, (0, 255, 0), 1)
             cv.circle(img, (int(cX), int(cY)), 2, (0, 0, 255), -1)
-
+        # draw edges
         for edge in edges:
             (sX, sY) = edge['start']
             (eX, eY) = edge['end']
-            color = (255, 0, 0)
             color = (random.randint(0,255), random.randint(0,255), random.randint(0,255))
             cv.line(img, (int(sX), int(sY)), (int(eX), int(eY)), color, 1)
-
         plt.imshow(img)
         plt.show()
 
     def get_latex_from_inkml(self, filepath):
+        """
+        Returns LaTeX anotation from InkML file.
+        :param filepath: InkML filepath
+        :return: LaTeX string
+        """
         if not os.path.isfile(filepath) and Path(filepath).suffix != '.inkml':
             logging.debug("Inkml file does not exists: " + filepath)
             return ""
@@ -426,6 +431,13 @@ class CrohmeDataset(Dataset):
             return ""
 
     def mathml_dfs(self, xml_ns, mathml_ns, root):
+        """
+        Recursive function performing depth first search traversal through MathML notation and parses the defined formula.
+        :param xml_ns: used xml namespace
+        :param mathml_ns: used matlml namespace
+        :param root: current subtree root element
+        :return: symbols, relations and serialized sequence of symbols in subtree given by root
+        """
         s, r = [], []
         sequence = []
 
@@ -530,21 +542,32 @@ class CrohmeDataset(Dataset):
                 logging.debug('MathML sub/superscript syntax error')
                 return s, r, [], root.attrib.get(xml_ns + 'id')
 
-            sequence.extend(basis_sequence)
             if root.tag == mathml_ns + 'msub':
                 relation_type = SrtEdgeTypes.SUBSCRIPT
+                sequence.extend(basis_sequence)
                 sequence.extend(["_", "{"])
+                sequence.extend(script_sequence)
+                sequence.append("}")
             elif root.tag == mathml_ns + 'msup':
                 relation_type = SrtEdgeTypes.SUPERSCRIPT
+                sequence.extend(basis_sequence)
                 sequence.extend(["^", "{"])
+                sequence.extend(script_sequence)
+                sequence.append("}")
             elif root.tag == mathml_ns + 'munder':
                 relation_type = SrtEdgeTypes.BELOW
                 sequence.extend([r"\underset", "{"])
+                sequence.extend(script_sequence)
+                sequence.extend(['}', '{'])
+                sequence.extend(basis_sequence)
+                sequence.append("}")
             else:
                 relation_type = SrtEdgeTypes.ABOVE
                 sequence.extend([r"\overset", "{"])
-            sequence.extend(script_sequence)
-            sequence.append("}")
+                sequence.extend(script_sequence)
+                sequence.extend(['}', '{'])
+                sequence.extend(basis_sequence)
+                sequence.append("}")
 
             r.append({
                 'src_id': basis_id,
@@ -592,14 +615,26 @@ class CrohmeDataset(Dataset):
                     sequence.extend(superscript_sequence)
                     sequence.append("}")
             else:
-                sequence.extend(basis_sequence)
-                if subscript_id:
-                    sequence.extend([r"\underset", "{"])
-                    sequence.extend(subscript_sequence)
-                    sequence.append("}")
-                if superscript_id:
+                if subscript_id and superscript_id:
                     sequence.extend([r"\overset", "{"])
                     sequence.extend(superscript_sequence)
+                    sequence.extend(['}', '{'])
+                    sequence.extend([r"\underset", "{"])
+                    sequence.extend(subscript_sequence)
+                    sequence.extend(['}', '{'])
+                    sequence.extend(basis_sequence)
+                    sequence.extend(['}', '}'])
+                elif subscript_id:
+                    sequence.extend([r"\underset", "{"])
+                    sequence.extend(subscript_sequence)
+                    sequence.extend(['}', '{'])
+                    sequence.extend(basis_sequence)
+                    sequence.append("}")
+                elif superscript_id:
+                    sequence.extend([r"\overset", "{"])
+                    sequence.extend(superscript_sequence)
+                    sequence.extend(['}', '{'])
+                    sequence.extend(basis_sequence)
                     sequence.append("}")
 
             if subscript_id:
@@ -705,7 +740,14 @@ class CrohmeDataset(Dataset):
             raise ItemLoadError('unknown MathML element: ' + root.tag)
 
     def parse_traces_inkml(self, ns, root):
+        """
+        Parses traces ground truth from InkML file and returns their list with computed bounding boxes.
+        :param ns: elements namespace
+        :param root: traces definition root element
+        :return: list of traces
+        """
         traces = []
+        # get traces
         for trace_node in root.findall(ns + 'trace'):
             trace_id = trace_node.get('id')
             trace_def = trace_node.text
@@ -722,7 +764,7 @@ class CrohmeDataset(Dataset):
                 'id': trace_id,
                 'points': trace_points
             })
-
+        # calculate bounding boxes
         for i, trace in enumerate(traces):
             min_x = float('inf')
             min_y = float('inf')
@@ -739,10 +781,15 @@ class CrohmeDataset(Dataset):
                 (max_x, max_y),
                 (min_x, max_y)
             ]
-
         return traces
 
     def parse_tracegroups_inkml(self, ns, root):
+        """
+        Parses tracegroups definition from InkML
+        :param ns: elements namespace
+        :param root: definition root element
+        :return: list of tracegroups
+        """
         tracegroups_list = []
         expression_group = root.find(ns + 'traceGroup')
         if expression_group is None:
@@ -767,6 +814,12 @@ class CrohmeDataset(Dataset):
         return tracegroups_list
 
     def get_tracegroups_bboxes(self, traces, tracegroups):
+        """
+        Matches traces with their tracegroups and calculates bounding boxes for whole tracegroups.
+        :param traces: list of traces
+        :param tracegroups: list of tracegroups
+        :return: list of tracegroups with bounding boxes
+        """
         for i, tracegroup in enumerate(tracegroups):
             max_x = 0
             max_y = 0
@@ -799,6 +852,11 @@ class CrohmeDataset(Dataset):
         return tracegroups
 
     def parse_inkml(self, inkml_path):
+        """
+        Extracts information from InkML file - symbols and relations from MathML GT, traces, tracegroups
+        :param inkml_path: InkML filepath
+        :return: SLT symbols, SLT relations, traces, tracegroups
+        """
         if not os.path.isfile(inkml_path) and Path(inkml_path).suffix != '.inkml':
             raise ItemLoadError("Inkml file does not exists: " + inkml_path)
 
@@ -834,7 +892,6 @@ class CrohmeDataset(Dataset):
             raise ItemLoadError("Inkml file does not contain math description root: " + inkml_path)
 
         # parse expression and identify symbols and relations
-
         try:
             # different namespaces in various types of annotation
             if annotation_type == MathMLAnnotationType.CONTENT:
@@ -848,14 +905,20 @@ class CrohmeDataset(Dataset):
 
         # identify all traces included in expression
         traces = self.parse_traces_inkml(doc_namespace, root)
-
         # parse trace-groups corresponding to separate symbols
         tracegroups = self.parse_tracegroups_inkml(doc_namespace, root)
         tracegroups = self.get_tracegroups_bboxes(traces, tracegroups)
-
         return s, r, seq, tracegroups
 
     def rescale_tracegroup_coordinates(self, image_path, tracegroups):
+        """
+        Rescale tracegroup coordinates parsed from InkML file so that they would
+        match positions in rendered source image. There is some padding on all sides and the whole image is padded to
+        square shape.
+        :param image_path: source image filepath
+        :param tracegroups: list of tracegroups
+        :return: list of tracegroups with rescaled coordinates of bounding boxes
+        """
         img = cv.imread(image_path)
         img_shape = img.shape
         # size of rendered image
@@ -898,10 +961,22 @@ class CrohmeDataset(Dataset):
         return tracegroups
 
     def get_slt(self, image_path, inkml_path, los_components=None):
+        """
+        Build Symbol Layout Tree (SLT) from InkML file and returns mapping of target graph nodes and source graph nodes
+        :param image_path: source image filepath
+        :param inkml_path: InkML GT filepath
+        :param los_components: list of source graph components
+        :return:
+            x, edge_index, edge_type, edge_relation - target graph
+            sequence - sequence of LaTeX symbols
+            comp_symbols - source components to target symbols mapping
+        """
         symbols, relations, sequence, tracegroups = self.parse_inkml(inkml_path)
         for symbol in symbols:
+            # convert mathml unicode symbols to latex label for defined set of expressions
             symbol['symbol'] = mathml_unicode_to_latex_label(symbol['symbol'])
         for i, symbol in enumerate(sequence):
+            # convert mathml unicode symbols to latex label for defined set of expressions
             sequence[i] = mathml_unicode_to_latex_label(symbol, skip_curly_brackets=True)
         # tokenize symbols
         unk_token_id = self.tokenizer.encode('[UNK]', add_special_tokens=False).ids[0]
@@ -916,6 +991,7 @@ class CrohmeDataset(Dataset):
             # assign symbols to tracegroups
             symbols_bbox_polygons = []
             for symbol in symbols:
+                # get tracegroup for each SLT graph node
                 tg = next((tg for tg in tracegroups if tg['symbol_id'] == symbol['id']), None)
                 if tg is not None and tg['bbox'] is not None:
                     symbols_bbox_polygons.append(Polygon(tg['bbox']))
@@ -935,16 +1011,14 @@ class CrohmeDataset(Dataset):
 
             comp_symbols = torch.tensor(los_components_symbols, dtype=torch.long)
 
-        # generate end child nodes
-        end_nodes, end_edge_index = self.get_end_child_nodes(len(x))
-
-        # append nodes with end children
+        # generate end leaf nodes
+        end_nodes, end_edge_index = self.get_end_leaf_nodes(len(x))
+        # append end leaf nodes
         x.extend(end_nodes)
-
+        # init edges
         edge_index = []
         edge_type = []
         edge_relation = []
-
         # build basic SLT graph on symbols and relations given by MathML
         for relation in relations:
             src_arr_id = next((i for i, x in enumerate(symbols) if x['id'] == relation['src_id']), None)
@@ -952,19 +1026,14 @@ class CrohmeDataset(Dataset):
             edge_index.append([src_arr_id, tgt_arr_id])
             edge_type.append(SltEdgeTypes.PARENT_CHILD)
             edge_relation.append(relation['type'])
-
         # append graph with edges to end child nodes
         edge_index.extend(end_edge_index)
         edge_type.extend(SltEdgeTypes.PARENT_CHILD for _ in end_edge_index)
         edge_relation.extend(SrtEdgeTypes.TO_ENDNODE for _ in end_edge_index)
-
-        # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation, False)
-
         # get grandparent and left brother edges and self loops
         gp_edges = self.get_gp_edges(edge_index)
         bro_edges = self.get_bro_edges(edge_index)
         self_edges = self.get_self_edges(len(x))
-
         # append gp and bro edges and self loops
         edge_index.extend(gp_edges)
         edge_type.extend([SltEdgeTypes.GRANDPARENT_GRANDCHILD for _ in gp_edges])
@@ -977,7 +1046,6 @@ class CrohmeDataset(Dataset):
         edge_relation.extend(SrtEdgeTypes.UNDEFINED for _ in self_edges)
 
         # self.draw_slt(symbols, x, edge_index, edge_type, edge_relation, include_end_nodes=True)
-
         return x, edge_index, edge_type, edge_relation, sequence, comp_symbols
 
     def get_tree_root(self, edge_index):
@@ -990,29 +1058,42 @@ class CrohmeDataset(Dataset):
             tgt_id = edge[1]
             if tgt_id in root_candidates:
                 root_candidates.remove(tgt_id)
-
         if len(root_candidates) != 1:
             return None
-
         root = root_candidates[0]
         return root
 
-    def get_end_child_nodes(self, nodes_count):
+    def get_end_leaf_nodes(self, nodes_count):
+        """
+        Creates end leaf - level termination node for each node in graph.
+        :param nodes_count: Number of nodes in graph.
+        :return: end leaf nodes and edges connecting them to parents
+        """
         eos_token_id = self.tokenizer.encode('[EOS]', add_special_tokens=False).ids[0]
         end_nodes = [eos_token_id for _ in range(nodes_count)]
         end_edge_index = [[i, nodes_count + i] for i in range(nodes_count)]
         return end_nodes, end_edge_index
 
     def get_gp_edges(self, edge_index):
+        """
+        Creates edges for grandparent-grandchild relation in extSLT.
+        :param edge_index: edge index of SLT graph
+        :return: list of grandparent edges
+        """
         root = self.get_tree_root(edge_index)
         gp_edges = self.dfs_gp_edges_idenitification(root, None, edge_index)
         return gp_edges
 
     def dfs_gp_edges_idenitification(self, root_idx, root_parent_idx, edge_index):
+        """
+        Depth first search traversal to indentify grandparent nodes in graph.
+        :param root_idx: subtree root
+        :param root_parent_idx: subtree root parent
+        :param edge_index: graph edge index
+        :return: list of grandparent edges in subtree
+        """
         children = [edge[1] for edge in edge_index if edge[0] == root_idx]
-
         gp_edges = []
-
         if len(children) == 0:
             # leaf
             return gp_edges
@@ -1021,21 +1102,24 @@ class CrohmeDataset(Dataset):
             if root_parent_idx is not None:
                 for child in children:
                     gp_edges.append([root_parent_idx, child])
-
             # recursively continue with subtree
             for child in children:
                 gp_edges.extend(
                     self.dfs_gp_edges_idenitification(child, root_idx, edge_index)
                 )
-
             # return merged list of gp edges
             return gp_edges
 
     def get_bro_edges(self, edge_index):
+        """
+        Creates edges for leftbrother-rightbrother relation in extSLT.
+        Performs Breadth first traversal of graph.
+        :param edge_index: edge index of SLT graph
+        :return: list of leftbrother edges
+        """
         bro_edges = []
         root = self.get_tree_root(edge_index)
         root_children = [edge[1] for edge in edge_index if edge[0] == root]
-
         # BFS traversal to identify left siblings edges
         # init
         prev_node = root
@@ -1044,7 +1128,6 @@ class CrohmeDataset(Dataset):
         parents = {root: None}
         for root_child in root_children:
             parents[root_child] = root
-
         # traverse tree
         while queue:
             node = queue.pop(0)
@@ -1062,10 +1145,25 @@ class CrohmeDataset(Dataset):
         return bro_edges
 
     def get_self_edges(self, nodes_count):
+        """
+        Creates self loop edges for each node in graph
+        :param nodes_count: count of nodes in graph
+        :return: list of edges
+        """
         self_loop_edges = [[i, i] for i in range(nodes_count)]
         return self_loop_edges
 
     def draw_slt(self, symbols, x, edge_index, edge_type, edge_relation, include_end_nodes=False):
+        """
+        Plots SLT graph using networkx library
+        :param symbols: list of symbols
+        :param x: list of symbol features
+        :param edge_index: edge index
+        :param edge_type: edge types list
+        :param edge_relation: edge relations list
+        :param include_end_nodes: whether to include end leaf nodes in plot
+        :return:
+        """
         x_indices = list(range(len(x)))
         x_indices = torch.tensor(x_indices, dtype=torch.double)
 

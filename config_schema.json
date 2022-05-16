@@ -2,7 +2,10 @@
   "device": {
     "type": "Optional",
     "datatype": "string",
-    "allowed_values": ["gpu", "cpu"],
+    "allowed_values": [
+      "gpu",
+      "cpu"
+    ],
     "default": "gpu"
   },
   "writer_path": {
@@ -28,7 +31,10 @@
         "description": "Whether to load already created tokenizer from file or train new one from inkml ground-truth files.",
         "type": "Required",
         "datatype": "bool",
-        "allowed_values": [true, false],
+        "allowed_values": [
+          true,
+          false
+        ],
         "default": false
       },
       "inkml_folder_for_vocab": {
@@ -89,7 +95,6 @@
         "datatype": "number (int)",
         "default": 256
       },
-
       "decoder_in_fsize": {
         "description": "Size of decoder input node features. Size of initial embedding of nodes.",
         "type": "Required",
@@ -197,37 +202,37 @@
         "type": "Optional",
         "datatype": "object",
         "sub": {
-            "loss_decoder_nodes": {
+          "loss_decoder_nodes": {
             "description": "Loss coefficient for node symbol classification from decoder node output features.",
             "type": "Required",
             "datatype": "number (real)",
             "default": 1.0
           },
-            "loss_decoder_edges": {
+          "loss_decoder_edges": {
             "description": "Loss coefficient for edge symbol classification from decoder node output features.",
             "type": "Required",
             "datatype": "number (real)",
             "default": 1.0
           },
-            "loss_convnet": {
+          "loss_convnet": {
             "description": "Loss coefficient for node symbol classification from VGG output features.",
             "type": "Required",
             "datatype": "number (real)",
             "default": 0.0
           },
-            "loss_encoder_nodes": {
+          "loss_encoder_nodes": {
             "description": "Loss coefficient for node symbol classification from GAT output features.",
             "type": "Required",
             "datatype": "number (real)",
             "default": 0.0
           },
-            "loss_attention": {
+          "loss_attention": {
             "description": "Loss coefficient decoder sub-attention.",
             "type": "Required",
             "datatype": "number (real)",
             "default": 0.0
           },
-            "loss_decoder_end_nodes": {
+          "loss_decoder_end_nodes": {
             "description": "Loss coefficient for addition end leaf nodes classification from decoder node output features.",
             "type": "Required",
             "datatype": "number (real)",
@@ -351,9 +356,9 @@
     "datatype": "object",
     "sub": {
       "images_folder": {
-          "description": "Path to folder with input images.",
-          "type": "Required",
-          "datatype": "string",
+        "description": "Path to folder with input images.",
+        "type": "Required",
+        "datatype": "string",
         "allowed_values": "path"
       },
       "inkmls_folder": {

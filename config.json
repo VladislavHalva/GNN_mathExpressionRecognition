@@ -1,7 +1,7 @@
 {
   "device": "gpu",
   "writer_path": "runs/",
-  "tmp_data_storage_folder": null,
+  "tmp_data_storage_folder": "temp/",
   "vocabulary": {
     "load_tokenizer": true,
     "inkml_folder_for_vocab": "assets/crohme/train/inkml",
@@ -35,14 +35,14 @@
     "save_checkpoint_each_nth_epoch": 0,
     "loss":{
         "loss_convnet": 0.0,
-        "loss_encoder_nodes": 0.0,
+        "loss_encoder_nodes": 0.3,
         "loss_attention": 0.0,
         "loss_decoder_nodes": 1.0,
         "loss_decoder_edges": 1.0,
         "loss_decoder_end_nodes": 0.0
     },
     "evaluation_during_train_1": {
-      "each_nth_epoch": 5,
+      "each_nth_epoch": 2,
       "images_folder": "assets/crohme/simple/img/",
       "inkmls_folder": "assets/crohme/simple/inkml/",
       "batch_size": 1,
@@ -52,7 +52,7 @@
       "beam_width": 3
     },
     "evaluation_during_train_2": {
-      "each_nth_epoch": 5,
+      "each_nth_epoch": 2,
       "images_folder": "assets/crohme/simple/img/",
       "inkmls_folder": "assets/crohme/simple/inkml/",
       "batch_size": 5,

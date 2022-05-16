@@ -22,10 +22,16 @@ class Config:
 
             self.parse_config()
 
-    def get_error(self, error_message=None):
+    def getset_error(self, error_message=None):
         logging.error("Configuration error: ")
         if error_message is not None:
             self.error_messages.append(error_message)
+            self.error = True
+        for error_message in self.error_messages:
+            logging.error(error_message)
+
+    def get_error(self):
+        logging.error("Configuration error: ")
         for error_message in self.error_messages:
             logging.error(error_message)
 
@@ -42,17 +48,17 @@ class Config:
         else:
             self.config['writer_path'] = None
         # TMP DATA STORAGE
-        if 'tmp_data_storage_folder' in d and d['tmp_data_storage_folder'] is not None and os.path.exists('tmp_data_storage_folder'):
+        if 'tmp_data_storage_folder' in d and d['tmp_data_storage_folder'] is not None and os.path.exists(d['tmp_data_storage_folder']):
             self.config['tmp_data_storage_folder'] = d['tmp_data_storage_folder']
         else:
             self.config['tmp_data_storage_folder'] = None
         # VOCABULARY CONFIG
         if 'vocabulary' not in d:
-            self.get_error('Vocabulary configuration missing')
+            self.getset_error('Vocabulary configuration missing')
             return
         self.config['vocabulary'] = {}
         if 'load_tokenizer' not in d['vocabulary']:
-            self.get_error('Vocabulary configuration missing load tokenizer')
+            self.getset_error('Vocabulary configuration missing load tokenizer')
             return
         if d['vocabulary']['load_tokenizer']:
             self.config['vocabulary']['load_tokenizer'] = True
@@ -61,23 +67,23 @@ class Config:
         if 'inkml_folder_for_vocab' in d['vocabulary'] and d['vocabulary']['inkml_folder_for_vocab'] is not None and os.path.exists(d['vocabulary']['inkml_folder_for_vocab']):
             self.config['vocabulary']['inkml_folder_for_vocab'] = d['vocabulary']['inkml_folder_for_vocab']
         elif self.config['vocabulary']['load_tokenizer']:
-            self.get_error('Folder with InkML files not specified or does not exist for tokenizer.')
+            self.getset_error('Folder with InkML files not specified or does not exist for tokenizer.')
             return
         if 'vocab_filepath' in d['vocabulary'] and d['vocabulary']['vocab_filepath'] is not None and os.path.exists(d['vocabulary']['vocab_filepath']):
             self.config['vocabulary']['vocab_filepath'] = d['vocabulary']['vocab_filepath']
         elif self.config['vocabulary']['load_tokenizer']:
-            self.get_error('Path for vocabulary not specified or does not exist for tokenizer.')
+            self.getset_error('Path for vocabulary not specified or does not exist for tokenizer.')
             return
         if 'tokenizer_filepath' not in d['vocabulary']:
-            self.get_error('Tokenizer filepath not specified.')
+            self.getset_error('Tokenizer filepath not specified.')
             return
         if self.config['vocabulary']['load_tokenizer'] and d['vocabulary']['tokenizer_filepath'] is not None and not os.path.exists(d['vocabulary']['tokenizer_filepath']):
-            self.get_error("Specified tokenizer file not found")
+            self.getset_error("Specified tokenizer file not found")
             return
         self.config['vocabulary']['tokenizer_filepath'] = d['vocabulary']['tokenizer_filepath']
         # MODEL CONFIGURATION
         if 'model' not in d:
-            self.get_error("Model specification missing")
+            self.getset_error("Model specification missing")
             return
         self.config['model'] = {}
         model_required_fields = [
@@ -97,7 +103,7 @@ class Config:
         ]
         for model_param in model_required_fields:
             if model_param not in d['model']:
-                self.get_error(model_param + 'specification missing')
+                self.getset_error(model_param + 'specification missing')
                 return
             else:
                 self.config['model'][model_param] = d['model'][model_param]
@@ -113,15 +119,15 @@ class Config:
             if 'images_folder' in d['train'] and os.path.exists(d['train']['images_folder']):
                 self.config['train']['images_folder'] = d['train']['images_folder']
             else:
-                self.get_error("Training images folder not set or not found")
+                self.getset_error("Training images folder not set or not found")
                 return
             if 'inkmls_folder' in d['train'] and os.path.exists(d['train']['inkmls_folder']):
                 self.config['train']['inkmls_folder'] = d['train']['inkmls_folder']
             else:
-                self.get_error("Training InkML files folder not set or not found")
+                self.getset_error("Training InkML files folder not set or not found")
                 return
             if 'epochs' not in d['train']:
-                self.get_error("Epochs count not set")
+                self.getset_error("Epochs count not set")
                 return
             self.config['train']['epochs'] = d['train']['epochs']
             if 'batch_size' in d['train']:
@@ -147,7 +153,7 @@ class Config:
                 ]
                 for loss_option in loss_options:
                     if loss_option not in d['train']['loss']:
-                        self.get_error(loss_option + ' not set')
+                        self.getset_error(loss_option + ' not set')
                         return
                     else:
                         self.config['train']['loss'][loss_option] = d['train']['loss'][loss_option]
@@ -164,21 +170,21 @@ class Config:
             if 'evaluation_during_train_1' in d['train']:
                 self.config['train']['eval1'] = {}
                 if 'each_nth_epoch' not in d['train']['evaluation_during_train_1']:
-                    self.get_error('Each nth epoch not set for train evaluation 1')
+                    self.getset_error('Each nth epoch not set for train evaluation 1')
                     return
                 else:
                     self.config['train']['eval1']['each_nth_epoch'] = d['train']['evaluation_during_train_1'][
                         'each_nth_epoch']
                 if 'images_folder' not in d['train']['evaluation_during_train_1'] or not os.path.exists(
                         d['train']['evaluation_during_train_1']['images_folder']):
-                    self.get_error('Evaluation 1 images not set or found')
+                    self.getset_error('Evaluation 1 images not set or found')
                     return
                 else:
                     self.config['train']['eval1']['images_folder'] = d['train']['evaluation_during_train_1'][
                         'images_folder']
                 if 'inkmls_folder' not in d['train']['evaluation_during_train_1'] or not os.path.exists(
                         d['train']['evaluation_during_train_1']['inkmls_folder']):
-                    self.get_error('Evaluation 1 InkML files not set or found')
+                    self.getset_error('Evaluation 1 InkML files not set or found')
                     return
                 else:
                     self.config['train']['eval1']['inkmls_folder'] = d['train']['evaluation_during_train_1'][
@@ -213,21 +219,21 @@ class Config:
             if 'evaluation_during_train_2' in d['train']:
                 self.config['train']['eval2'] = {}
                 if 'each_nth_epoch' not in d['train']['evaluation_during_train_2']:
-                    self.get_error('Each nth epoch not set for train evaluation 1')
+                    self.getset_error('Each nth epoch not set for train evaluation 1')
                     return
                 else:
                     self.config['train']['eval2']['each_nth_epoch'] = d['train']['evaluation_during_train_2'][
                         'each_nth_epoch']
                 if 'images_folder' not in d['train']['evaluation_during_train_2'] or not os.path.exists(
                         d['train']['evaluation_during_train_2']['images_folder']):
-                    self.get_error('Evaluation 1 images not set or found')
+                    self.getset_error('Evaluation 1 images not set or found')
                     return
                 else:
                     self.config['train']['eval2']['images_folder'] = d['train']['evaluation_during_train_2'][
                         'images_folder']
                 if 'inkmls_folder' not in d['train']['evaluation_during_train_2'] or not os.path.exists(
                         d['train']['evaluation_during_train_2']['inkmls_folder']):
-                    self.get_error('Evaluation 1 InkML files not set or found')
+                    self.getset_error('Evaluation 1 InkML files not set or found')
                     return
                 else:
                     self.config['train']['eval2']['inkmls_folder'] = d['train']['evaluation_during_train_2'][
@@ -265,12 +271,12 @@ class Config:
             self.config['evaluate'] = {}
             if 'images_folder' not in d['evaluate'] or not os.path.exists(
                     d['evaluate']['images_folder']):
-                self.get_error('Evaluation images not set or found')
+                self.getset_error('Evaluation images not set or found')
                 return
             else:
                 self.config['evaluate']['images_folder'] = d['evaluate']['images_folder']
             if 'inkmls_folder' not in d['evaluate'] or not os.path.exists(d['evaluate']['inkmls_folder']):
-                self.get_error('Evaluation InkML files not set or found')
+                self.getset_error('Evaluation InkML files not set or found')
                 return
             else:
                 self.config['evaluate']['inkmls_folder'] = d['evaluate']['inkmls_folder']

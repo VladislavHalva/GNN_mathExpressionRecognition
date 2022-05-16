@@ -1,8 +1,29 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 from src.data.SltParser import SltParser
 
-
 class SltDiff:
+    """
+    Computes difference of Symbol Layout Trees of two formulas.
+    """
     def __init__(self, tokenizer, a, a_eindex, a_etype, a_erel, b, b_eindex, b_etype, b_erel):
+        """
+        :param tokenizer: trained tokenizer
+        :param a: first graph node symbol logits
+        :param a_eindex: first graph edge index
+        :param a_etype: first graph edge types
+        :param a_erel: first graph edge relations
+        :param b: second graph node symbol logits
+        :param b_eindex: second graph edge index
+        :param b_etype: second graph edge types
+        :param b_erel: second graph edge relations
+        """
         # load first SLT, decode tokens and clean SLT
         self.a_eindex = a_eindex
         self.a_tk = SltParser.decode_node_tokens(tokenizer, a)
@@ -17,7 +38,9 @@ class SltDiff:
         self.result = {}
 
     def eval(self):
-        # check nodes and edges counts
+        """
+        Evaluates SLT difference.
+        """
         self.result['a_nodes'] = len(self.a_tk)
         self.result['b_nodes'] = len(self.b_tk)
         self.result['nodes_count_match'] = self.result['a_nodes'] == self.result['b_nodes']
@@ -28,6 +51,9 @@ class SltDiff:
         self.traverse_trees()
 
     def traverse_trees(self):
+        """
+        Computes global statistics of graphs difference.
+        """
         self.result['a_nodes_missing'] = 0
         self.result['b_nodes_missing'] = 0
         self.result['node_class_errors'] = 0
@@ -50,18 +76,22 @@ class SltDiff:
             (self.result['node_class_errors'] + self.result['edge_class_errors']) <= 3
 
     def traverse_subtree(self, a_root, b_root):
+        """
+        DFS traversal of SLT trees. Computes local difference statistics.
+        Traverses both graph simultaneously and compares them.
+        :param a_root: first graph current root
+        :param b_root: second graph current root
+        """
+        # get currect root token if exists
         a_token = self.a_tk[a_root] if a_root is not None else None
         b_token = self.b_tk[b_root] if b_root is not None else None
-
-        # print(f"{a_token} : {b_token}")
-
+        # compare current roots
         if a_root is None:
             self.result['a_nodes_missing'] += 1
         if b_root is None:
             self.result['b_nodes_missing'] += 1
         if a_root is not None and b_root is not None and self.a_tk[a_root] != self.b_tk[b_root]:
             self.result['node_class_errors'] += 1
-
         # get children
         a_children = None
         b_children = None
@@ -93,4 +123,7 @@ class SltDiff:
             self.traverse_subtree(a_children[child_i]['id'], b_children[child_i]['id'])
 
     def get_result(self):
+        """
+        :return: SLT graphs comparison results.
+        """
         return self.result

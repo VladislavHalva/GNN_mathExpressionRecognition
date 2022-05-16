@@ -41,7 +41,7 @@ class Trainer:
         self.substitute_terms = False
 
         # use GPU if available
-        if config['device'] == 'cuda':
+        if config['device'] == 'gpu':
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         else:
             self.device = torch.device("cpu")
@@ -148,7 +148,7 @@ class Trainer:
 
         optimizer = optim.Adam(self.model.parameters(), lr=0.0003)
 
-        trainset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path, self.substitute_terms, img_transform=True)
+        trainset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path, self.substitute_terms)
         trainloader = DataLoader(trainset, batch_size, False, follow_batch=['x', 'tgt_y', 'gt', 'gt_ml', 'filename'])
 
         self.model.train()
@@ -254,7 +254,8 @@ class Trainer:
                     self.second_eval_train_settings['print_stats'],
                     self.second_eval_train_settings['print_item_level_stats'],
                     beam_search=self.second_eval_train_settings['beam_search'],
-                    beam_width=self.second_eval_train_settings['beam_width']
+                    beam_width=self.second_eval_train_settings['beam_width'],
+                    eval_id=2
                 )
 
         if save_model_dir is not None and os.path.exists(save_model_dir):
@@ -315,7 +316,7 @@ class Trainer:
         return stats
 
     def evaluate(self, images_root, inkmls_root, batch_size=1, writer=False, epoch=None, print_stats=True,
-                 print_item_level_stats=False, store_results_dir=None, results_author='', beam_search=True, beam_width=3):
+                 print_item_level_stats=False, store_results_dir=None, results_author='', beam_search=True, beam_width=3, eval_id=""):
         logging.info("\nEvaluation...")
         if beam_search:
             logging.info(f"Beam search with beam width: {beam_width}")
@@ -443,12 +444,12 @@ class Trainer:
             logging.info(f" e-dist avg: {stats['edit_distances_seq_avg']:.3f}")
 
         if writer and epoch is not None:
-            self.writer.add_scalar('SetExactMatch/eval', stats['exact_match_pct'], epoch)
-            self.writer.add_scalar('SetExactMatch-1/eval', stats['exact_match_1_pct'], epoch)
-            self.writer.add_scalar('SetExactMatch-2/eval', stats['exact_match_2_pct'], epoch)
-            self.writer.add_scalar('SetExactMatch-3/eval', stats['exact_match_3_pct'], epoch)
-            self.writer.add_scalar('SetStructMatch/eval', stats['structure_match_pct'], epoch)
-            self.writer.add_scalar('SetEditDistSeqAvg/eval', stats['edit_distances_seq_avg'], epoch)
+            self.writer.add_scalar('SetExactMatch/eval' + str(eval_id), stats['exact_match_pct'], epoch)
+            self.writer.add_scalar('SetExactMatch-1/eval' + str(eval_id), stats['exact_match_1_pct'], epoch)
+            self.writer.add_scalar('SetExactMatch-2/eval' + str(eval_id), stats['exact_match_2_pct'], epoch)
+            self.writer.add_scalar('SetExactMatch-3/eval' + str(eval_id), stats['exact_match_3_pct'], epoch)
+            self.writer.add_scalar('SetStructMatch/eval' + str(eval_id), stats['structure_match_pct'], epoch)
+            self.writer.add_scalar('SetEditDistSeqAvg/eval' + str(eval_id), stats['edit_distances_seq_avg'], epoch)
 
         self.model.train()
         return stats

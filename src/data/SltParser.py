@@ -1,3 +1,11 @@
+# ###
+# Mathematical expression recognition tool.
+# Written as a part of masters thesis at VUT FIT Brno, 2022
+
+# Author: Vladislav Halva
+# Login: xhalva04
+# ###
+
 import numpy as np
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
@@ -6,23 +14,42 @@ from src.definitions.exceptions.SltStructureError import SltStructureError
 
 
 class SltParser:
+    """
+    Performs Symbol Layout Tree conversion to LaTeX sequence.
+    """
     @staticmethod
     def get_root(tokens, pc_edge_index):
-        # THERE HAS TO BE ONLY SINGLE TREE (one root in graph)
+        """
+        Looks up tree root node
+        :param tokens: list of tokens/nodes
+        :param pc_edge_index: edge index - containing parent-child edges only (tree structure)
+        :return: root node id or None if not found
+        """
+        # finds tokens, that arent targets of any edge
         tokens_ids = np.array(list(range(len(tokens))))
         targets = np.array(list(set([edge[1] for edge in pc_edge_index if edge[1] < len(tokens)])))
         tokens_ids = np.delete(tokens_ids, targets)
-
+        # none or many return "not found"
         if tokens_ids.shape[0] != 1:
             return None
         return tokens_ids[0]
 
     @staticmethod
     def get_children(root_id, pc_edge_index, bb_edge_index):
+        """
+        Finds child nodes of given root and returns them sorted in order specified by leftbrother-rightbrother edges
+        :param root_id: root node id
+        :param pc_edge_index: parent-child edge index
+        :param bb_edge_index: leftbrother-rightbrother edge index
+        :return: list of ordered childer from leftmost to rightmost
+        """
+        # get all children
         children = [{'id': edge[1], 'e_id': idx} for idx, edge in enumerate(pc_edge_index) if edge[0] == root_id]
         if len(children) <= 1:
+            # if one or less, no need to sort
             return children
         else:
+            # more --> sort by brother edges
             children_ids = [ch['id'] for ch in children]
             bb_src_node_ids = bb_edge_index[:, 0]
             bb_tgt_node_ids = bb_edge_index[:, 1]
@@ -34,7 +61,6 @@ class SltParser:
             children_order = first_node
             for _ in range(len(children_ids) - 1):
                 current_node = children_order[-1]
-                # TODO řádek nad hází chybu
                 next_child = [edge[1] for edge in bb_edge_index if edge[0] == current_node]
                 if len(next_child) == 0:
                     raise SltStructureError()
@@ -49,6 +75,15 @@ class SltParser:
 
     @staticmethod
     def parse_slt_subtree(root_id, x, pc_edge_index, bb_edge_index, pc_edge_rel):
+        """
+        Recursive DFS traversal parsing. Generates LaTeX output of subtree of current root.
+        :param root_id: current subtree root id
+        :param x: nodes
+        :param pc_edge_index: parent-child edge index
+        :param bb_edge_index: left-right brother edge index
+        :param pc_edge_rel: parent-child edges relations
+        :return: sequence of latex symbols (tokens) for current subtree
+        """
         output = []
         root_symbol = x[root_id]
         # identify child nodes
@@ -72,11 +107,9 @@ class SltParser:
         subscript = [subtree for i, subtree in enumerate(children_subtrees) if
                      pc_edge_rel[children[i]['e_id']] == SrtEdgeTypes.SUBSCRIPT]
 
-        # append root symbol
-        output.append(root_symbol)
-
         # symbol specific formatting
         if root_symbol == r"\frac":
+            output.append(root_symbol)
             output.append('{')
             for a in above:
                 output.extend(a)
@@ -88,6 +121,7 @@ class SltParser:
             above = []
             below = []
         elif root_symbol == r"\sqrt":
+            output.append(root_symbol)
             output.append('{')
             for i in inside:
                 output.extend(i)
@@ -95,8 +129,26 @@ class SltParser:
             # already used --> empty list
             inside = []
             pass
-
-        # TODO add above and below
+        elif root_symbol == r"\overset":
+            output.append('{')
+            for a in above:
+                output.extend(a)
+            output.extend(['}', '{'])
+            output.append(root_symbol)
+            output.append('}')
+            # already used --> empty list
+            above = []
+        elif root_symbol == r"\underset":
+            output.append('{')
+            for b in below:
+                output.extend(b)
+            output.extend(['}', '{'])
+            output.append(root_symbol)
+            output.append('}')
+            # already used --> empty list
+            below = []
+        else:
+            output.append(root_symbol)
 
         # common rules for super/subscripts and right positions
         if len(subscript) > 0:
@@ -120,8 +172,15 @@ class SltParser:
 
     @staticmethod
     def identify_reachable_nodes(tokens, pc_edge_index, bb_edge_index, root_id):
+        """
+        Finds nodes reachable form root given parent-child edges only.
+        :param tokens: list of node tokens
+        :param pc_edge_index: parent-child edge index
+        :param bb_edge_index: left-right brother edge index (for sorting children only)
+        :param root_id: tree root id
+        :return: list of indices of reachable nodes
+        """
         token_ids = list(range(len(tokens)))
-
         # BFS traversal to identify reachable nodes (from root)
         visited = []
         queue = []
@@ -136,21 +195,30 @@ class SltParser:
                 children_ids = [child['id'] for child in current_root_children]
                 queue.extend(children_ids)
                 reachable.extend(children_ids)
-
         reachable = list(set(reachable))
         return reachable
 
     @staticmethod
     def remove_unconnected_edges(node_ids, pc_edge_index, pc_edge_relations, bb_edge_index):
+        """
+        Removes edges from edge index list whose src/tgt node indices do not match the nodes indices list.
+        :param node_ids: list of node indices
+        :param pc_edge_index: parent-child edge index
+        :param pc_edge_relations: parent-child edges relations
+        :param bb_edge_index: left-right brother edge index
+        :return: cleaned pc_edge_index, pc_edge_relations, bb_edge_index
+        """
         pc_remove_ids = []
         bb_remove_ids = []
+        # identify unconnected pc edges
         for i, edge in enumerate(pc_edge_index):
             if edge[0] not in node_ids or edge[1] not in node_ids:
                 pc_remove_ids.append(i)
+        # identify unconnected bb edges
         for i, edge in enumerate(bb_edge_index):
             if edge[0] not in node_ids or edge[1] not in node_ids:
                 bb_remove_ids.append(i)
-
+        # remove unconnected
         pc_edge_index = np.delete(pc_edge_index, pc_remove_ids, axis=0)
         pc_edge_relations = np.delete(pc_edge_relations, pc_remove_ids)
         bb_edge_index = np.delete(bb_edge_index, bb_remove_ids, axis=0)
@@ -158,6 +226,16 @@ class SltParser:
 
     @staticmethod
     def remove_nodes(x, x_remove_ids, edge_index1, edge_index2, edge_relations1):
+        """
+        Removes nodes from graph with corresponding edges. And shifts nodes indices in edge_index
+        list to match the newly created nodes list
+        :param x: original list of nodes
+        :param x_remove_ids: list of indices of nodes, that shall be removed
+        :param edge_index1: edge index 1
+        :param edge_index2: edge index 2
+        :param edge_relations1: edge relations corresponding to first edge index list
+        :return: updated x, edge_index1, edge_index2, edge_relations1
+        """
         # determine how many positions will each of the x-elems move to the left in array
         x_remove_ids = np.asarray(x_remove_ids, dtype=np.uint)
         x_shift_positions = np.zeros((len(x)))
@@ -186,6 +264,13 @@ class SltParser:
 
     @staticmethod
     def shift_indices_edge(edge_index, x_shift_positions):
+        """
+        Shifts indices in edge index given the shift positions map.
+        :param edge_index: edge index
+        :param x_shift_positions: shift positions map list if len(x),
+        values tell how many position to shift node index
+        :return:
+        """
         for i in range(edge_index.shape[0]):
             for j in range(edge_index.shape[1]):
                 edge_index[i][j] = edge_index[i][j] - x_shift_positions[edge_index[i][j]]
@@ -193,6 +278,20 @@ class SltParser:
 
     @staticmethod
     def clean_slt(tokens, edge_relations, edge_index, edge_type, training_time=False):
+        """
+        Removes brother-brother, grandparent-grandchild edges, end-leaf nodes
+        and nodes not reachable from root.
+        :param tokens: list of nodes tokens
+        :param edge_relations: edge relations list
+        :param edge_index: edge index
+        :param edge_type: edge types list
+        :param training_time: whether in training time
+            - during training there might be some nodes classified as end-leaves somewhere
+              else than at the end of each nodes children list
+        :return:
+            cleaned, tokens, pc_edge_index, bb_edge_index, pc_edge_relations
+            and root_id
+        """
         # keep only parent-child edges
         edge_pc_indices = ((edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])
         edge_bb_indices = ((edge_type == SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER).nonzero(as_tuple=True)[0])
@@ -200,11 +299,10 @@ class SltParser:
         pc_edge_relations = edge_relations[edge_pc_indices]
         # and save brother edges for ordering purposes
         bb_edge_index = edge_index.t()[edge_bb_indices]
-
+        # convert lists to ndarrays
         pc_edge_index = pc_edge_index.numpy()
         pc_edge_relations = pc_edge_relations.numpy()
         bb_edge_index = bb_edge_index.numpy()
-
         # identify root - needs to be done before removing any nodes
         if pc_edge_index.shape[0] == 0:
             if tokens.shape[0] == 0:
@@ -215,7 +313,6 @@ class SltParser:
                 root_id = 0
         else:
             root_id = SltParser.get_root(tokens, pc_edge_index)
-
         # remove end leaf nodes
         # for training time's sake change nodes classified as [EOS]
         # that have subtrees (somewhere in the middle of the tree) to empty string
@@ -228,10 +325,8 @@ class SltParser:
                     tokens[i] = ''
                 else:
                     end_node_ids.append(i)
-
         tokens, pc_edge_index, bb_edge_index, pc_edge_relations = \
             SltParser.remove_nodes(tokens, end_node_ids, pc_edge_index, bb_edge_index, pc_edge_relations)
-
         # remove nodes not reachable from root
         # Note: matters in training time only - otherwise only end leaf nodes will be removed
         # (tree level generation always ends with EOS)
@@ -239,19 +334,22 @@ class SltParser:
         unreachable_nodes_ids = [token_id for token_id, _ in enumerate(tokens) if token_id not in reachable_node_ids]
         tokens, pc_edge_index, bb_edge_index, pc_edge_relations = \
             SltParser.remove_nodes(tokens, unreachable_nodes_ids, pc_edge_index, bb_edge_index, pc_edge_relations)
-
         # remove edges implying non-existing nodes (were within the unreachable subtrees)
         pc_edge_index, pc_edge_relations, bb_edge_index = \
             SltParser.remove_unconnected_edges([i for i in range(len(tokens))], pc_edge_index, pc_edge_relations,
                                                bb_edge_index)
-
         if len(tokens) == 0:
             root_id = None
-
         return tokens, pc_edge_index, bb_edge_index, pc_edge_relations, root_id
 
     @staticmethod
     def decode_node_tokens(tokenizer, x):
+        """
+        Transforms list of token ids to tokens.
+        :param tokenizer: tokenizer
+        :param x: list of token ids
+        :return: list of tokens
+        """
         x = x.numpy()
         tokens = [tokenizer.decode([token_id], skip_special_tokens=False) for token_id in x]
         tokens = np.asarray(tokens)
@@ -259,26 +357,23 @@ class SltParser:
 
     @staticmethod
     def slt_to_latex(tokenizer, x, edge_relations, edge_index, edge_type):
+        """
+        Converts given SLT tree to LaTeX sequence.
+        :param tokenizer: tokenizer
+        :param x: graph nodes list
+        :param edge_relations: edge relations list
+        :param edge_index: edge index
+        :param edge_type: edge types list
+        :return: latex string, list of latex tokens
+        """
+        # get tokens from token ids
         tokens = SltParser.decode_node_tokens(tokenizer, x)
-
+        # keep only basic form of slt graph (no additional edges and nodes)
         tokens, pc_edge_index, bb_edge_index, pc_edge_relations, root_id = \
             SltParser.clean_slt(tokens, edge_relations, edge_index, edge_type)
-
-        # g = nx.Graph()
-        # for edge in pc_edge_index:
-        #     g.add_edge(edge[0], edge[1])
-        #
-        # labeldict = {}
-        # for i, x_i in enumerate(tokens):
-        #     labeldict[i] = str(i) + tokens[i]
-        # g = nx.relabel_nodes(g, labeldict)
-        #
-        # pos = graphviz_layout(g, prog="dot")
-        # nx.draw(g, pos, with_labels=True)
-        # plt.show()
-
+        # no root = incorrect structure
         if root_id is None:
             return "", []
-
+        # recursively parse LaTeX sequence (DFS)
         latex = SltParser.parse_slt_subtree(root_id, tokens, pc_edge_index, bb_edge_index, pc_edge_relations)
         return ' '.join(latex), latex
