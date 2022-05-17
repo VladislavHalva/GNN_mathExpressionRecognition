@@ -17,6 +17,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
+from src.data.ImageTransformation import ImageTransformation
 from src.data.GMathDataset import CrohmeDataset
 from src.data.LatexVocab import LatexVocab
 from src.definitions.SltEdgeTypes import SltEdgeTypes
@@ -206,8 +207,10 @@ class Trainer:
 
         optimizer = optim.Adam(self.model.parameters(), lr=0.0003)
 
-        trainset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path, self.substitute_terms)
-        trainloader = DataLoader(trainset, batch_size, False, follow_batch=['x', 'tgt_y', 'gt', 'gt_ml', 'filename'])
+        # augment images while training
+        transform = ImageTransformation()
+        trainset = CrohmeDataset(images_root, inkmls_root, self.tokenizer, self.components_shape, self.temp_path, self.substitute_terms, transform=transform)
+        trainloader = DataLoader(trainset, batch_size, True, follow_batch=['x', 'tgt_y', 'gt', 'gt_ml', 'filename'])
 
         self.model.train()
 
@@ -238,7 +241,7 @@ class Trainer:
                 loss.backward()
 
                 # gradient clipping
-                # nn.utils.clip_grad_value_(self.model.parameters(), clip_value=1.0)
+                torch.nn.utils.clip_grad_value_(self.model.parameters(), clip_value=5.0)
 
                 optimizer.step()
 

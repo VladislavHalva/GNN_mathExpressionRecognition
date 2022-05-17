@@ -97,13 +97,16 @@ def calculate_loss(out, end_node_token_id, device, writer, loss_config: object =
     block1_attn = out.gcn1_alpha
     block2_attn = out.gcn1_alpha
     block3_attn = out.gcn1_alpha
-    attn_gt = out.attn_gt * 100
 
-    attn_gt = masked_softmax(attn_gt, alpha_batch_mask, dim=1)
-    loss_block1_attn = F.mse_loss(block1_attn, attn_gt, reduction='sum')
-    loss_block2_attn = F.mse_loss(block2_attn, attn_gt, reduction='sum')
-    loss_block3_attn = F.mse_loss(block3_attn, attn_gt, reduction='sum')
-    loss_block_attn_mean = torch.mean(torch.stack([loss_block1_attn, loss_block2_attn, loss_block3_attn]))
+    attn_gt = out.attn_gt
+    # attn_gt = out.attn_gt * 100
+    # attn_gt = masked_softmax(attn_gt, alpha_batch_mask, dim=1)
+
+    loss_block1_attn = F.mse_loss(block1_attn, attn_gt, reduction='mean')
+    loss_block2_attn = F.mse_loss(block2_attn, attn_gt, reduction='mean')
+    loss_block3_attn = F.mse_loss(block3_attn, attn_gt, reduction='mean')
+    loss_block_attn_mean = loss_block1_attn + loss_block2_attn + loss_block3_attn
+
 
     # calculate loss for output graph SRT edge type predictions - take in account only parent-child edges
     tgt_edge_pc_indices = ((out.tgt_edge_type == SltEdgeTypes.PARENT_CHILD).nonzero(as_tuple=True)[0])

@@ -7,7 +7,9 @@
 # ###
 
 import torch
+from torch.nn import Parameter
 from torch_geometric.nn import Linear, MessagePassing
+from torch_geometric.nn.inits import glorot
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 from src.model.Attention import Attention
@@ -31,20 +33,25 @@ class AttentionBlock(MessagePassing):
         self.device = device
         self.dropout_p = dropout_p
         self.negative_slope = 0.2
+        self.att_size = att_size
         self.out_size = out_size
         self.is_first = is_first
+
+        self.weight = Parameter(
+            torch.Tensor(3, out_size, att_size))
 
         self.lin_h = Linear(out_size, att_size, bias=False, weight_initializer='glorot')
         self.lin_x_init = Linear(init_size, att_size, bias=False, weight_initializer='glorot')
         self.lin_key = Linear(f_size, att_size, bias=False, weight_initializer='glorot')
         self.lin_value = Linear(f_size, out_size, bias=False, weight_initializer='glorot')
-        self.attention = Attention(dim=1, dropout_p=dropout_p)
+        self.attention = Attention(dropout_p=dropout_p)
 
     def reset_parameters(self):
         self.lin_h.reset_parameters()
         self.lin_x_init.reset_parameters()
         self.lin_key.reset_parameters()
         self.lin_value.reset_parameters()
+        glorot(self.weight)
 
     def forward(self, f, h, edge_index, edge_type, f_batch, x_batch, x_init):
         """
@@ -57,40 +64,18 @@ class AttentionBlock(MessagePassing):
         :param x_init: output graph initial node embeddings
         :return: context vectors for each output graph nodes, alpha coefficients
         """
-        h = self.lin_h(h)
-        x_init = self.lin_x_init(x_init)
-        c, alpha = self.propagate(edge_index, f=f, h=h, x_init=x_init, edge_type=edge_type, x_batch=x_batch, f_batch=f_batch)
-        return c, alpha
+        size = (h.size(0), h.size(0))
+        query = torch.zeros(h.size(0), self.att_size, device=self.device)
 
-    def message(self, h_j, x_init_j, edge_index, edge_type):
-        """
-        Merges each nodes current features with parents and brothers initial embeddings.
-        :param h_j: edge source node features after last GCN
-        :param x_init_j: edge source node initial embedding
-        :param edge_index: edge index
-        :param edge_type: edge types list
-        :return: query for attention
-        """
-        pc_edges_mask = (edge_type == int(SltEdgeTypes.PARENT_CHILD)).to(torch.long).unsqueeze(1)
-        cc_edges_mask = (edge_type == int(SltEdgeTypes.CURRENT_CURRENT)).to(torch.long).unsqueeze(1)
-        bb_edges_mask = (edge_type == int(SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER)).to(torch.long).unsqueeze(1)
+        # propagate for each edge type separately
+        for i, i_type in enumerate([SltEdgeTypes.CURRENT_CURRENT, SltEdgeTypes.PARENT_CHILD, SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER]):
+            edge_index_masked = self.masked_edge_index(edge_index, edge_type == i_type)
+            if i_type == SltEdgeTypes.CURRENT_CURRENT:
+                query_i = self.propagate(edge_index_masked, h=h, size=size)
+            else:
+                query_i = self.propagate(edge_index_masked, h=x_init, size=size)
+            query = query + (query_i @ self.weight[i])
 
-        query_h = h_j * cc_edges_mask
-        query_bro = x_init_j * bb_edges_mask
-        query_pa = x_init_j * pc_edges_mask
-
-        query = query_h + query_bro + query_pa
-        return query
-
-    def update(self, query, f, x_batch, f_batch):
-        """
-        Attends to source graph.
-        :param query:
-        :param f: source graph node features
-        :param x_batch: output graph node batch indices
-        :param f_batch: source graph node batch indices
-        :return: context vectors, attention coefficients
-        """
         key = self.lin_key(f)
         value = self.lin_value(f)
 
@@ -98,3 +83,15 @@ class AttentionBlock(MessagePassing):
         context, attn = self.attention(query, key, value, alpha_not_batch_mask)
         return context, attn
 
+    def message(self, h_j):
+        """
+        Only passes source node features for each edge of the currently processed type.
+        :param h_j: source node features
+        """
+        return h_j
+
+    def masked_edge_index(self, edge_index, edge_mask):
+        """
+        Mask edge index. Return edges given by mask.
+        """
+        return edge_index[:, edge_mask]

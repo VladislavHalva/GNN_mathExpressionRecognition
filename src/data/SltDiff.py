@@ -7,6 +7,8 @@
 # ###
 
 from src.data.SltParser import SltParser
+from src.definitions.exceptions.SltStructureError import SltStructureError
+
 
 class SltDiff:
     """
@@ -82,9 +84,6 @@ class SltDiff:
         :param a_root: first graph current root
         :param b_root: second graph current root
         """
-        # get currect root token if exists
-        a_token = self.a_tk[a_root] if a_root is not None else None
-        b_token = self.b_tk[b_root] if b_root is not None else None
         # compare current roots
         if a_root is None:
             self.result['a_nodes_missing'] += 1
@@ -96,8 +95,10 @@ class SltDiff:
         a_children = None
         b_children = None
         if a_root is not None:
+            # a_children = SltDiff.get_ordered_children(a_root, self.a_eindex_pc, self.a_eindex_bb, self.a_erel_pc)
             a_children = SltParser.get_children(a_root, self.a_eindex_pc, self.a_eindex_bb)
         if b_root is not None:
+            # b_children = SltDiff.get_ordered_children(b_root, self.b_eindex_pc, self.b_eindex_bb, self.b_erel_pc)
             b_children = SltParser.get_children(b_root, self.b_eindex_pc, self.b_eindex_bb)
         # if neither of trees has children at this point of traversal -> return
         if a_children is None and b_children is None:
@@ -121,6 +122,40 @@ class SltDiff:
         # explore children subtrees
         for child_i in range(len(a_children)):
             self.traverse_subtree(a_children[child_i]['id'], b_children[child_i]['id'])
+
+    @staticmethod
+    def get_ordered_children(root, eindex_pc, eindex_bb, erel_pc):
+        children = [{'id': edge[1], 'e_id': idx} for idx, edge in enumerate(eindex_pc) if edge[0] == root]
+        if len(children) <= 1:
+            return children
+        else:
+            # sort by brother edges first, then by type
+            children_ids = [ch['id'] for ch in children]
+            # get all brother-brother edge sources and targets
+            bb_src_nodes = eindex_bb[:, 0]
+            bb_tgt_nodes = eindex_bb[:, 1]
+            # filter those who belong to this roots children
+            bb_src_nodes = [node for node in bb_src_nodes if node in children_ids]
+            bb_tgt_nodes = [node for node in bb_tgt_nodes if node in children_ids]
+            # traverse brother-brother edges to get order
+            first_node = [node_id for node_id in bb_src_nodes if node_id not in bb_tgt_nodes]
+            children_order = first_node
+            for _ in range(len(children_ids) - 1):
+                current_node = children_order[-1]
+                next_child = [edge[1] for edge in eindex_bb if edge[0] == current_node]
+                if len(next_child) == 0:
+                    raise SltStructureError()
+                else:
+                    children_order.append(next_child[0])
+            children_ordered = []
+            for child_id in children_order:
+                children_ordered.append(next(child for child in children if child['id'] == child_id))
+            for i, child in enumerate(children_ordered):
+                child['bb_order'] = i
+                child['etype'] = erel_pc[child['e_id']]
+            # reorder the order obtained from brother-brother nodes based on edge type
+            children_ordered = sorted(children_ordered, key=lambda x: (x['etype'], x['bb_order']))
+            return children_ordered
 
     def get_result(self):
         """

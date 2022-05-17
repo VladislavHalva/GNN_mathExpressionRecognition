@@ -104,7 +104,8 @@ class GATConvV2(MessagePassing):
         x = x_i + x_j
         edge_attr = self.lin_edge(edge_attr)
         edge_attr = edge_attr.view(-1, self.heads, self.out_size)
-        x += edge_attr
+        x *= torch.sigmoid(edge_attr)
+        # x = x + edge_attr
         # attend
         x = F.leaky_relu(x, self.negative_slope)
         alpha = (x * self.att).sum(dim=-1)

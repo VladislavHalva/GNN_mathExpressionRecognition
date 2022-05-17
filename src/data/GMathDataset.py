@@ -112,7 +112,7 @@ class CrohmeDataset(Dataset):
                 with open(tmp_file_path, 'rb') as tmp_file:
                     data = pickle.load(tmp_file)
                     if self.transform:
-                        data = self.transform(data)
+                        data.x = self.transform(data.x)
                     return data
             else:
                 # build data if tmp does not exists
@@ -135,9 +135,9 @@ class CrohmeDataset(Dataset):
                         with open(tmp_file_path, 'wb') as tmp_file:
                             pickle.dump(data, tmp_file)
 
-                # data transfomation if defined
+                # data transformation if defined
                 if self.transform:
-                    data = self.transform(data)
+                    data.x = self.transform(data.x)
                 return data
         except Exception as e:
             # if error while creating item occurred - fetch another random element instead

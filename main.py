@@ -10,8 +10,6 @@ import argparse
 import logging
 
 from src.Trainer import Trainer
-from src.data.GMathDataset import CrohmeDataset
-from src.data.LatexVocab import LatexVocab
 from src.utils.Config import Config
 
 if __name__ == '__main__':
@@ -27,7 +25,7 @@ if __name__ == '__main__':
     configurator = Config(args['config'])
     config = configurator.get()
     if config is None:
-        exit(1)
+        exit()
     if args['print_config']:
         configurator.print()
     # set-up run

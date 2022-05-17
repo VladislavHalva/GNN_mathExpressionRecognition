@@ -1,3 +1,4 @@
+pip install torchvision
 pip install opencv-python
 apt-get install ffmpeg libsm6 libxext6  -y
 pip install tokenizers

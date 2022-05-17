@@ -14,11 +14,10 @@ import torch.nn.functional as F
 
 class Attention(nn.Module):
     """
-    Scaled dot product attention module.
+    Attention module.
     """
-    def __init__(self, dim, dropout_p):
+    def __init__(self, dropout_p):
         super(Attention, self).__init__()
-        self.sqrt_dim = np.sqrt(dim)
         self.dropout_p = dropout_p
 
     def forward(self, query, key, value, mask=None):
@@ -29,7 +28,7 @@ class Attention(nn.Module):
         :param mask: mask - where mask is zero attention will be masked
         :return:
         """
-        score = torch.mm(query, key.transpose(0, 1)) / self.sqrt_dim
+        score = torch.mm(torch.sigmoid(query), key.transpose(0, 1))
 
         if mask is not None:
             score.masked_fill_(mask.view(score.size()).bool(), -float('Inf'))

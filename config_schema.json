@@ -47,14 +47,14 @@
         },
         "inkml_folder_for_vocab": {
           "description": "Path to a folder containing inkml groud-truth to train tokenizer.",
-          "type": "Required if load_tokenizer==true",
+          "type": "Required if load_tokenizer==false",
           "datatype": "string",
           "allowed_values": "path",
           "default": null
         },
         "vocab_filepath": {
           "description": "Path to file, that will be created if new tokenizer is trained to store extracted symbols from formulas.",
-          "type": "Required if load_tokenizer==true",
+          "type": "Required if load_tokenizer==false",
           "datatype": "string",
           "allowed_values": "path",
           "default": null

@@ -7,15 +7,16 @@
 # ###
 
 import torch
-from torch_geometric.nn import MessagePassing, Linear
-import torch.nn.functional as F
+from torch.nn import Parameter
+from torch_geometric.nn import MessagePassing
+from torch_geometric.nn.inits import glorot, zeros
 
 from src.definitions.SltEdgeTypes import SltEdgeTypes
 
 
 class GCN(MessagePassing):
     """
-    Modified GCN layer with multiple weight matrices for each edge type.
+    Modified GCN layer with separate parameters for each edge type.
     """
     def __init__(self, device, in_size, out_size, is_first=False):
         """
@@ -24,24 +25,23 @@ class GCN(MessagePassing):
         :param out_size: out node features size
         :param is_first: True if within first decoder block
         """
-        super(GCN, self).__init__(node_dim=0, aggr='add')
+        super(GCN, self).__init__(node_dim=0, aggr='mean')
         self.device = device
         self.in_size = in_size
         self.out_size = out_size
+        self.num_edge_types = 4
         self.is_first = is_first
 
-        self.lin_gg = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
-        self.lin_pc = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
-        self.lin_bb = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
-        self.lin_cc = Linear(in_size, out_size, bias=False, weight_initializer='glorot')
+        # weight matrices for separate edge types
+        self.weight = Parameter(
+            torch.Tensor(self.num_edge_types, in_size, out_size))
+        self.bias = Parameter(torch.Tensor(out_size))
 
         self.reset_parameters()
 
     def reset_parameters(self):
-        self.lin_gg.reset_parameters()
-        self.lin_pc.reset_parameters()
-        self.lin_bb.reset_parameters()
-        self.lin_cc.reset_parameters()
+        glorot(self.weight)
+        zeros(self.bias)
 
     def forward(self, x, edge_index, edge_type):
         """
@@ -50,43 +50,42 @@ class GCN(MessagePassing):
         :param edge_type: edge types list
         :return: new node features
         """
-        # get transformations for each node as if it was connected by each of the types of edges
-        gg = self.lin_gg(x)
-        pc = self.lin_pc(x)
-        bb = self.lin_bb(x)
+        size = (x.size(0), x.size(0))
+        out = torch.zeros(x.size(0), self.out_size, device=self.device)
 
-        if self.is_first:
-            # if first layer - self features are zero for each embedding
-            # important to simulate evaluation time state during training
-            cc = self.lin_cc(torch.zeros(x.size(), dtype=torch.double).to(self.device))
-        else:
-            cc = self.lin_cc(x)
+        # propagate for each edge type separately
+        for i in range(self.num_edge_types):
+            edge_index_masked = self.masked_edge_index(edge_index, edge_type == i)
+            if self.is_first and i == SltEdgeTypes.CURRENT_CURRENT:
+                # for training time self feature need to be zero for each node to be consistent with eval-time
+                x_in = torch.zeros(x.size(0), self.in_size, dtype=torch.double, device=self.device)
+            else:
+                x_in = x
+            h = self.propagate(edge_index_masked, x=x_in, size=size)
+            out = out + (h @ self.weight[i])
 
-        h = self.propagate(gg=gg, pc=pc, bb=bb, cc=cc, edge_index=edge_index, edge_type=edge_type)
-        h_in_and_condition = torch.cat([h, h], dim=1)
-        h = F.glu(h_in_and_condition, dim=1)
-        return h
+        out += self.bias
+        return out
 
-    def message(self, gg_j, pc_j, bb_j, cc_j, edge_index, edge_type):
+    def message(self, x_j):
         """
-        :param gg_j: source node features as if it was connected by grandparent edge
-        :param pc_j: source node features as if it was connected by parent edge
-        :param bb_j: source node features as if it was connected by brother edge
-        :param cc_j: source node features as if it was connected by self-loop edge
-        :param edge_index: edge index
-        :param edge_type: edge types list
-        :return: message to h_i
+        Only passes source node features for each edge of the currently processed type.
+        :param x_j: source node features
         """
-        # j -> i
-        gg_edge_mask = (edge_type == SltEdgeTypes.GRANDPARENT_GRANDCHILD).to(torch.long).unsqueeze(1).to(self.device)
-        pc_edge_mask = (edge_type == SltEdgeTypes.PARENT_CHILD).to(torch.long).unsqueeze(1).to(self.device)
-        bb_edge_mask = (edge_type == SltEdgeTypes.LEFTBROTHER_RIGHTBROTHER).to(torch.long).unsqueeze(1).to(self.device)
-        cc_edge_mask = (edge_type == SltEdgeTypes.CURRENT_CURRENT).to(torch.long).unsqueeze(1).to(self.device)
-        # mask messages based on edge types
-        gg_j = gg_j * gg_edge_mask
-        pc_j = pc_j * pc_edge_mask
-        bb_j = bb_j * bb_edge_mask
-        cc_j = cc_j * cc_edge_mask
+        return x_j
 
-        h = gg_j + pc_j + bb_j + cc_j
-        return h
+    def message_and_aggregate(self, adj_t, x):
+        """
+        Aggregation of neighborhood.
+        :param adj_t: adjacency matrix
+        :param x: node features
+        :return: new node features per node
+        """
+        adj_t = adj_t.set_value(None)
+        return torch.matmul(adj_t, x, reduce=self.aggr)
+
+    def masked_edge_index(self, edge_index, edge_mask):
+        """
+        Mask edge index. Return edges given by mask.
+        """
+        return edge_index[:, edge_mask]

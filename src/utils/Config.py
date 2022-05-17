@@ -31,8 +31,7 @@ class Config:
                     data = json.load(json_file)
                     self.data = data
                 except JSONDecodeError as e:
-                    logging.error("Config file parse error:")
-                    logging.error(" " + str(e))
+                    self.set_error(str(e))
                     return
 
             self.parse_config()
@@ -48,6 +47,14 @@ class Config:
             self.error = True
         for error_message in self.error_messages:
             logging.error(error_message)
+
+    def set_error(self, error_message):
+        """
+        Appends error message and sets error state.
+        :param error_message: error message to append
+        """
+        self.error_messages.append(error_message)
+        self.error = True
 
     def get_error(self):
         """
@@ -91,12 +98,12 @@ class Config:
             self.config['vocabulary']['load_tokenizer'] = False
         if 'inkml_folder_for_vocab' in d['vocabulary'] and d['vocabulary']['inkml_folder_for_vocab'] is not None and os.path.exists(d['vocabulary']['inkml_folder_for_vocab']):
             self.config['vocabulary']['inkml_folder_for_vocab'] = d['vocabulary']['inkml_folder_for_vocab']
-        elif self.config['vocabulary']['load_tokenizer']:
+        elif not self.config['vocabulary']['load_tokenizer']:
             self.getset_error('Folder with InkML files not specified or does not exist for tokenizer.')
             return
         if 'vocab_filepath' in d['vocabulary'] and d['vocabulary']['vocab_filepath'] is not None and os.path.exists(d['vocabulary']['vocab_filepath']):
             self.config['vocabulary']['vocab_filepath'] = d['vocabulary']['vocab_filepath']
-        elif self.config['vocabulary']['load_tokenizer']:
+        elif not self.config['vocabulary']['load_tokenizer']:
             self.getset_error('Path for vocabulary not specified or does not exist for tokenizer.')
             return
         if 'tokenizer_filepath' not in d['vocabulary']:
