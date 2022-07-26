@@ -1,7 +1,0 @@
----
-title: 108_alfonso
-author: Vladislav Halva
-date: May 04 2022
----
-
-$$a ^ { x } a ^ { y } = a ^ { x + y }$$

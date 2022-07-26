@@ -1,7 +1,0 @@
----
-title: 65_alfonso
-author: Vladislav Halva
-date: May 04 2022
----
-
-$$x = r \cos \theta$$

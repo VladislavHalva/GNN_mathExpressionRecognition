@@ -1,7 +1,0 @@
----
-title: 95_alfonso
-author: Vladislav Halva
-date: May 04 2022
----
-
-$$b = c \sin B = c \cos A$$
